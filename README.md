@@ -1,15 +1,15 @@
-# just_audio
+# audio_player
 
-just_audio is a feature-rich audio player for Android, iOS, macOS, web, Linux and Windows.
+audio_player is a feature-rich audio player for Android, iOS, macOS, web, Linux and Windows.
 
-[Platform Support](#platform-support) — [API Documentation](https://pub.dev/documentation/just_audio/latest/just_audio/just_audio-library.html) — [Tutorials](#tutorials) — [Background Audio](https://pub.dev/packages/just_audio_background) — [Community Support](https://stackoverflow.com/questions/tagged/just-audio)
+[Platform Support](#platform-support) — [API Documentation](https://pub.dev/documentation/audio_player/latest/audio_player/audio_player-library.html) — [Tutorials](#tutorials) — [Background Audio](https://pub.dev/packages/audio_player_background) — [Community Support](https://stackoverflow.com/questions/tagged/just-audio)
 
 ![Screenshot with arrows pointing to features](https://user-images.githubusercontent.com/19899190/125459608-e89cd6d4-9f09-426c-abcc-ed7513d9acfc.png)
 
 ### Quick synopsis
 
 ```dart
-import 'package:just_audio/just_audio.dart';
+import 'package:audio_player/audio_player.dart';
 
 final player = AudioPlayer();                   // Create a player
 final duration = await player.setUrl(           // Load a URL
@@ -230,7 +230,7 @@ player.playerStateStream.listen((state) {
 
 ## Credits
 
-This project is supported by the amazing open source community of [GitHub contributors](https://github.com/ryanheise/just_audio/blob/minor/CONTRIBUTING.md) and [sponsors](https://github.com/sponsors/ryanheise). Thank you!
+This project is supported by the amazing open source community of [GitHub contributors](https://github.com/ryanheise/audio_player/blob/minor/CONTRIBUTING.md) and [sponsors](https://github.com/sponsors/ryanheise). Thank you!
 
 ## Platform specific configuration
 
@@ -248,7 +248,7 @@ If you wish to connect to non-HTTPS URLs (typically HTTP), also add the followin
     <application ... android:usesCleartextTraffic="true">
 ```
 
-Note that just_audio's proxy (used to implement features such as headers, caching and stream audio sources) runs on a `localhost` HTTP server, and this also requires cleartext access to be enabled. You can either enable this via the option above which also enables access to any non-HTTPS URL, or you can instead limit cleartext access to just `localhost` URLs by defining a network security config. To use this approach, create the file `android/app/src/main/res/xml/network_security_config.xml`:
+Note that audio_player's proxy (used to implement features such as headers, caching and stream audio sources) runs on a `localhost` HTTP server, and this also requires cleartext access to be enabled. You can either enable this via the option above which also enables access to any non-HTTPS URL, or you can instead limit cleartext access to just `localhost` URLs by defining a network security config. To use this approach, create the file `android/app/src/main/res/xml/network_security_config.xml`:
 
 ```xml
 <?xml version="1.0" encoding="utf-8"?>
@@ -342,32 +342,32 @@ The macOS player relies on server headers (e.g. `Content-Type`, `Content-Length`
 
 ### Windows
 
-Windows support is enabled by adding an additional dependency to your `pubspec.yaml` alongside `just_audio`. There are a number of alternative options:
+Windows support is enabled by adding an additional dependency to your `pubspec.yaml` alongside `audio_player`. There are a number of alternative options:
 
-* [just_audio_windows](https://pub.dev/packages/just_audio_windows)
-* [just_audio_libwinmedia](https://pub.dev/packages/just_audio_libwinmedia)
+* [audio_player_windows](https://pub.dev/packages/audio_player_windows)
+* [audio_player_libwinmedia](https://pub.dev/packages/audio_player_libwinmedia)
 
 Example:
 
 ```yaml
 dependencies:
-  just_audio: any # substitute version number
-  just_audio_windows: any # substitute version number
+  audio_player: any # substitute version number
+  audio_player_windows: any # substitute version number
 ```
 
 For issues with the Windows implementation, please open an issue on the respective implementation's GitHub issues page.
 
 ### Linux
 
-Linux support is enabled by adding an additional dependency to your `pubspec.yaml` alongside `just_audio`. There are a number of alternative options:
+Linux support is enabled by adding an additional dependency to your `pubspec.yaml` alongside `audio_player`. There are a number of alternative options:
 
-* [just_audio_mpv](https://pub.dev/packages/just_audio_mpv)
-* [just_audio_libwinmedia](https://pub.dev/packages/just_audio_libwinmedia) (untested)
+* [audio_player_mpv](https://pub.dev/packages/audio_player_mpv)
+* [audio_player_libwinmedia](https://pub.dev/packages/audio_player_libwinmedia) (untested)
 
 ```yaml
 dependencies:
-  just_audio: any # substitute version number
-  just_audio_mpv: any # substitute version number
+  audio_player: any # substitute version number
+  audio_player_mpv: any # substitute version number
 ```
 
 For issues with the Linux implementation, please open an issue on the respective implementation's GitHub issues page.
@@ -382,30 +382,30 @@ Different platforms support different audio formats and encodings. For a list, s
 
 Different audio formats have different seeking support. If you have control over the encoding of the audio files your app needs to play, then it is recommended to encode audio as M4A because this is capable of embedding an accurate seek table. With MP3, there are multiple different methods of encoding that permit seeking, although all such methods are approximate. When your app needs to play from arbitrary audio sources requested by the user, you are at the mercy of the source audio format.
 
-Different audio formats may or may not embed duration metadata, and the absence of this metadata is a common reason why just_audio may sometimes return a null duration. This behaviour is platform specific, however, and Android can sometimes infer the missing duration by decoding the entire file and measuring the duration.
+Different audio formats may or may not embed duration metadata, and the absence of this metadata is a common reason why audio_player may sometimes return a null duration. This behaviour is platform specific, however, and Android can sometimes infer the missing duration by decoding the entire file and measuring the duration.
 
 ### Server headers
 
 A server that hosts audio content should return appropriate HTTP response headers to the client. This includes an appropriate `Content-Length` header and a correct `Content-Type` header so that the player knows which decoder to use to read the data.
 
-Servers should also support range requests. These allow just_audio to make requests for a part of the whole file within a given byte range as opposed to always requesting the whole file. If the user seeks to a position near the end of the audio file that hasn't been downloaded yet (and if there is a seek table), just_audio will try to make a range request for the end of the file.
+Servers should also support range requests. These allow audio_player to make requests for a part of the whole file within a given byte range as opposed to always requesting the whole file. If the user seeks to a position near the end of the audio file that hasn't been downloaded yet (and if there is a seek table), audio_player will try to make a range request for the end of the file.
 
-Range requests can also impact on just_audio's ability to determine an audio file's duration. In many cases, certain audio formats embed metadata (which includes the audio duration) at the END of the audio file, and range requests allow just_audio to jump to the end of the file to fetch the metadata first, without having to wait for the entire file to download, and then inform you up front what the audio file duration is. If just_audio returns a null duration when the audio file has duration metadata, this may suggest that the server does not support range requests.
+Range requests can also impact on audio_player's ability to determine an audio file's duration. In many cases, certain audio formats embed metadata (which includes the audio duration) at the END of the audio file, and range requests allow audio_player to jump to the end of the file to fetch the metadata first, without having to wait for the entire file to download, and then inform you up front what the audio file duration is. If audio_player returns a null duration when the audio file has duration metadata, this may suggest that the server does not support range requests.
 
 If you host audio files on your own server, remember to correctly configure the headers described above.
 
 ### File names
 
-When playing audio from a local file, just_audio cannot use any `Content-Type` header to figure out which decoder to use to read the file. Instead, the file name extension will generally be used to determine the file type. For example, if a file name ends with `.mp3`, the MP3 decoder will be used to read it, while if the file name ends with `.wav`, the WAV decoder will be used. If the file name has an `.mp3` extension but the actual file content is not in the MP3 format, then just_audio may potentially fail to read it. iOS enforces this fairly strictly, while Android is more likely to be forgiving by taking a peek at the data to make an educated guess as to what the data format really is. In general, however, it is recommended to use correct file name extensions for any audio file that is under your control.
+When playing audio from a local file, audio_player cannot use any `Content-Type` header to figure out which decoder to use to read the file. Instead, the file name extension will generally be used to determine the file type. For example, if a file name ends with `.mp3`, the MP3 decoder will be used to read it, while if the file name ends with `.wav`, the WAV decoder will be used. If the file name has an `.mp3` extension but the actual file content is not in the MP3 format, then audio_player may potentially fail to read it. iOS enforces this fairly strictly, while Android is more likely to be forgiving by taking a peek at the data to make an educated guess as to what the data format really is. In general, however, it is recommended to use correct file name extensions for any audio file that is under your control.
 
 ## Mixing and matching audio plugins
 
-The flutter plugin ecosystem contains a wide variety of useful audio plugins. In order to allow these to work together in a single app, just_audio "just" plays audio. By focusing on a single responsibility, different audio plugins can safely work together without overlapping responsibilities causing runtime conflicts.
+The flutter plugin ecosystem contains a wide variety of useful audio plugins. In order to allow these to work together in a single app, audio_player "just" plays audio. By focusing on a single responsibility, different audio plugins can safely work together without overlapping responsibilities causing runtime conflicts.
 
 Other common audio capabilities are optionally provided by separate plugins:
 
-* [just_audio_background](https://pub.dev/packages/just_audio_background): Use this to allow your app to play audio in the background and respond to controls on the lockscreen, media notification, headset, AndroidAuto/CarPlay or smart watch.
-* [audio_service](https://pub.dev/packages/audio_service): Use this if your app has more advanced background audio requirements than can be supported by `just_audio_background`.
+* [audio_player_background](https://pub.dev/packages/audio_player_background): Use this to allow your app to play audio in the background and respond to controls on the lockscreen, media notification, headset, AndroidAuto/CarPlay or smart watch.
+* [audio_service](https://pub.dev/packages/audio_service): Use this if your app has more advanced background audio requirements than can be supported by `audio_player_background`.
 * [audio_session](https://pub.dev/packages/audio_session): Use this to configure and manage how your app interacts with other audio apps (e.g. phone call or navigator interruptions).
 * [just_waveform](https://pub.dev/packages/just_waveform): Use this to extract an audio file's waveform suitable for visual rendering.
 
@@ -420,13 +420,13 @@ Other common audio capabilities are optionally provided by separate plugins:
 
 Press the thumbs up icon on the GitHub issues you would like to vote on:
 
-* Pitch shifting: [#329](https://github.com/ryanheise/just_audio/issues/329)
-* Equaliser: [#147](https://github.com/ryanheise/just_audio/issues/147)
-* Casting support (Chromecast and AirPlay): [#211](https://github.com/ryanheise/just_audio/issues/211)
-* Volume boost and skip silence: [#307](https://github.com/ryanheise/just_audio/issues/307)
-* [All feature requests sorted by popularity](https://github.com/ryanheise/just_audio/issues?q=is%3Aopen+is%3Aissue+label%3Aenhancement+sort%3Areactions-%2B1-desc)
+* Pitch shifting: [#329](https://github.com/ryanheise/audio_player/issues/329)
+* Equaliser: [#147](https://github.com/ryanheise/audio_player/issues/147)
+* Casting support (Chromecast and AirPlay): [#211](https://github.com/ryanheise/audio_player/issues/211)
+* Volume boost and skip silence: [#307](https://github.com/ryanheise/audio_player/issues/307)
+* [All feature requests sorted by popularity](https://github.com/ryanheise/audio_player/issues?q=is%3Aopen+is%3Aissue+label%3Aenhancement+sort%3Areactions-%2B1-desc)
 
-Please also consider pressing the thumbs up button at the top of [this page](https://pub.dev/packages/just_audio) (pub.dev) if you would like to bring more momentum to the project. More users leads to more bug reports and feature requests, which leads to increased stability and functionality.
+Please also consider pressing the thumbs up button at the top of [this page](https://pub.dev/packages/audio_player) (pub.dev) if you would like to bring more momentum to the project. More users leads to more bug reports and feature requests, which leads to increased stability and functionality.
 
 ## Platform support
 
@@ -461,17 +461,17 @@ Please also consider pressing the thumbs up button at the top of [this page](htt
 | Feature                                                                            | Android   | iOS     | macOS   | Web     |
 | -------                                                                            | :-------: | :-----: | :-----: | :-----: |
 | Simultaneous downloading+caching                                                   | ✅        | ✅      | ✅      |         |
-| Waveform visualizer (See [#97](https://github.com/ryanheise/just_audio/issues/97)) | ✅        | ✅      |         |         |
-| FFT visualizer (See [#97](https://github.com/ryanheise/just_audio/issues/97))      | ✅        | ✅      | ✅      |         |
+| Waveform visualizer (See [#97](https://github.com/ryanheise/audio_player/issues/97)) | ✅        | ✅      |         |         |
+| FFT visualizer (See [#97](https://github.com/ryanheise/audio_player/issues/97))      | ✅        | ✅      | ✅      |         |
 | Background                                                                         | ✅        | ✅      | ✅      | ✅      |
 
-Please consider reporting any bugs you encounter [here](https://github.com/ryanheise/just_audio/issues) or submitting pull requests [here](https://github.com/ryanheise/just_audio/pulls).
+Please consider reporting any bugs you encounter [here](https://github.com/ryanheise/audio_player/issues) or submitting pull requests [here](https://github.com/ryanheise/audio_player/pulls).
 
 ## The state model
 
 The state of the player consists of two orthogonal states: `playing` and `processingState`. The `playing` state typically maps to the app's play/pause button and only ever changes in response to direct method calls by the app. By contrast, `processingState` reflects the state of the underlying audio decoder and can change both in response to method calls by the app and also in response to events occurring asynchronously within the audio processing pipeline. The following diagram depicts the valid state transitions:
 
-![just_audio_states](https://user-images.githubusercontent.com/19899190/103147563-e6601100-47aa-11eb-8baf-dee00d8e2cd4.png)
+![audio_player_states](https://user-images.githubusercontent.com/19899190/103147563-e6601100-47aa-11eb-8baf-dee00d8e2cd4.png)
 
 This state model provides a flexible way to capture different combinations of states such as playing+buffering vs paused+buffering, and this allows state to be more accurately represented in an app's UI. It is important to understand that even when `playing == true`, no sound will actually be audible unless `processingState == ready` which indicates that the buffers are filled and ready to play. This makes intuitive sense when imagining the `playing` state as mapping onto an app's play/pause button:
 
@@ -485,7 +485,7 @@ Apps that wish to react to both orthogonal states through a single combined stre
 
 If your app uses audio, you should tell the operating system what kind of usage scenario your app has and how your app will interact with other audio apps on the device. Different audio apps often have unique requirements. For example, when a navigator app speaks driving instructions, a music player should duck its audio while a podcast player should pause its audio. Depending on which one of these three apps you are building, you will need to configure your app's audio settings and callbacks to appropriately handle these interactions.
 
-just_audio will by default choose settings that are appropriate for a music player app which means that it will automatically duck audio when a navigator starts speaking, but should pause when a phone call or another music player starts. If you are building a podcast player or audio book reader, this behaviour would not be appropriate. While the user may be able to comprehend the navigator instructions while ducked music is playing in the background, it would be much more difficult to understand the navigator instructions while simultaneously listening to an audio book or podcast.
+audio_player will by default choose settings that are appropriate for a music player app which means that it will automatically duck audio when a navigator starts speaking, but should pause when a phone call or another music player starts. If you are building a podcast player or audio book reader, this behaviour would not be appropriate. While the user may be able to comprehend the navigator instructions while ducked music is playing in the background, it would be much more difficult to understand the navigator instructions while simultaneously listening to an audio book or podcast.
 
 You can use the [audio_session](https://pub.dev/packages/audio_session) package to change the default audio session configuration for your app. E.g. for a podcast player, you may use:
 
