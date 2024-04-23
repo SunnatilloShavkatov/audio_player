@@ -2192,8 +2192,11 @@ abstract class AudioSource {
   ///
   /// If headers are set, just_audio will create a cleartext local HTTP proxy on
   /// your device to forward HTTP requests with headers included.
-  static UriAudioSource uri(Uri uri,
-      {Map<String, String>? headers, dynamic tag}) {
+  static UriAudioSource uri(
+    Uri uri, {
+    Map<String, String>? headers,
+    dynamic tag,
+  }) {
     bool hasExtension(Uri uri, String extension) =>
         uri.path.toLowerCase().endsWith('.$extension') ||
         uri.fragment.toLowerCase().endsWith('.$extension');
