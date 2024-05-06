@@ -12,15 +12,13 @@ dependencies:
   audio_session: ^0.1.19
   rxdart: ^0.27.7
   just_audio_mpv: ^0.1.7
-  just_audio_windows: ^0.2.0
   audio_player:
     path: ../
-
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  test: ^1.25.4
+  test: any
   flutter_lints: ^3.0.2
 
 flutter:

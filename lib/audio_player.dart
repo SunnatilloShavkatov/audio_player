@@ -902,14 +902,15 @@ class AudioPlayer {
     if (_disposed) return null;
     _setPlatformActive(true)?.catchError((dynamic e) async => null);
     final duration = await _load(
-        await _platform,
-        start == null && end == null
-            ? _audioSource!
-            : ClippingAudioSource(
-                child: _audioSource as UriAudioSource,
-                start: start,
-                end: end,
-              ));
+      await _platform,
+      start == null && end == null
+          ? _audioSource!
+          : ClippingAudioSource(
+              child: _audioSource as UriAudioSource,
+              start: start,
+              end: end,
+            ),
+    );
     return duration;
   }
 

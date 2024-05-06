@@ -22,7 +22,7 @@ dependencies:
   async: ^2.11.0
   uuid: ^4.4.0
   crypto: ^3.0.3
-  meta: any
+  meta: ">=1.11.0 <2.0.0"
   flutter:
     sdk: flutter
 
