@@ -1,1 +1,7 @@
-../../darwin/Classes/LoadControl.m
+#import "LoadControl.h"
+
+@implementation LoadControl
+@synthesize preferredForwardBufferDuration;
+@synthesize canUseNetworkResourcesForLiveStreamingWhilePaused;
+@synthesize preferredPeakBitRate;
+@end

@@ -1,1 +1,6 @@
-../../darwin/Classes/IndexedPlayerItem.m
+#import "IndexedPlayerItem.h"
+#import "IndexedAudioSource.h"
+
+@implementation IndexedPlayerItem
+@synthesize audioSource;
+@end
