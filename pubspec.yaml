@@ -10,8 +10,8 @@ topics:
   - background
 
 environment:
-  sdk: ">=3.3.0 <4.0.0"
-  flutter: ">=3.19.0"
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
 
 dependencies:
   just_audio_platform_interface: ^4.3.0
