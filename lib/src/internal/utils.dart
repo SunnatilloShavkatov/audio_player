@@ -26,30 +26,3 @@ extension _ValueStreamExtension<T> on ValueStream<T> {
   /// Backwards compatible version of valueOrNull.
   T? get nullableValue => hasValue ? value : null;
 }
-
-Future<HttpClientRequest> _getUrl(HttpClient client, Uri uri, {Map<String, String>? headers}) async {
-  final request = await client.getUrl(uri);
-  if (headers != null) {
-    final host = request.headers.value(HttpHeaders.hostHeader);
-    request.headers.clear();
-    request.headers.set(HttpHeaders.contentLengthHeader, '0');
-    headers.forEach((name, value) => request.headers.set(name, value));
-    if (host != null) {
-      request.headers.set(HttpHeaders.hostHeader, host);
-    }
-    if (client.userAgent != null) {
-      request.headers.set(HttpHeaders.userAgentHeader, client.userAgent!);
-    }
-  }
-  // Match ExoPlayer's native behavior
-  request.maxRedirects = 20;
-  return request;
-}
-
-HttpClient _createHttpClient({String? userAgent}) {
-  final client = HttpClient();
-  if (userAgent != null) {
-    client.userAgent = userAgent;
-  }
-  return client;
-}

@@ -1,9 +1,9 @@
 # audio_player
 
-A feature-rich, high-performance audio player plugin for Flutter. Play, loop, clip, and sequence audio from any source (assets, local files, remote URLs, and byte streams) in gapless playlists.
+A feature-rich, high-performance audio player plugin for Flutter. Play, loop, clip, and sequence audio from assets, local files and remote URLs in gapless playlists.
 
 [![pub package](https://img.shields.io/badge/pub-v1.0.1-blue.svg)](https://github.com/SunnatilloShavkatov/audio_player)
-[![license](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20macos-lightgrey.svg)](https://github.com/SunnatilloShavkatov/audio_player)
 
 ---
@@ -23,11 +23,10 @@ A feature-rich, high-performance audio player plugin for Flutter. Play, loop, cl
 
 ## Features
 
-- 🎵 **Any Source**: Remote URLs, local device files, app assets, and custom byte streams (`StreamAudioSource`).
+- 🎵 **Any Source**: Remote URLs (with custom request headers and user agent), local device files and app assets.
 - 🔁 **Gapless Playlists**: Smooth, uninterrupted track transitions with dynamic queue management (add, remove, move).
 - 🎚️ **Precision Controls**: Full control over volume, speed, seeking, looping, and shuffling. Pitch and silence skipping are Android only (accepted as no-ops on iOS/macOS).
 - ✂️ **Audio Clipping**: Play millisecond-precise segments of any track without modifying files.
-- ⚡ **Caching**: Stream remote audio while caching to disk for offline playback (`LockCachingAudioSource`).
 - 📻 **Streaming Protocols**: Native support for HLS (`.m3u8`), DASH (`.mpd`), and ICY radio metadata.
 - 🎛️ **Audio Effects**: Equalizer (band count depends on the device) & loudness enhancer on Android.
 - 📡 **Reactive Architecture**: RxDart streams for playback state, position, buffer, and duration.
@@ -60,7 +59,7 @@ dependencies:
    <uses-permission android:name="android.permission.INTERNET"/>
    ```
 
-2. If you stream cleartext HTTP audio or use caching/proxy features, enable cleartext traffic in `<application>`:
+2. If you stream from `http://` (not `https://`) URLs, enable cleartext traffic in `<application>`:
    ```xml
    <application
        android:usesCleartextTraffic="true"
@@ -69,31 +68,14 @@ dependencies:
 
 ### iOS
 
-The local proxy (used for request headers, a custom user agent and `StreamAudioSource`) serves audio over
-cleartext HTTP on `127.0.0.1`. Allow that in `ios/Runner/Info.plist`:
-
-```xml
-<key>NSAppTransportSecurity</key>
-<dict>
-    <key>NSAllowsLocalNetworking</key>
-    <true/>
-</dict>
-```
-
-Only if you also stream from remote `http://` (not `https://`) URLs, add `NSAllowsArbitraryLoads` (or, better, an
-`NSExceptionDomains` entry for those hosts).
+No setup is needed for `https://` URLs. Only if you stream from `http://` URLs, add an `NSAppTransportSecurity`
+entry to `ios/Runner/Info.plist`: an `NSExceptionDomains` entry for those hosts or, less strictly,
+`NSAllowsArbitraryLoads`.
 
 ### macOS
 
-1. Add App Transport Security to `macos/Runner/Info.plist` (see the iOS notes above for when
-   `NSAllowsArbitraryLoads` is needed):
-   ```xml
-   <key>NSAppTransportSecurity</key>
-   <dict>
-       <key>NSAllowsLocalNetworking</key>
-       <true/>
-   </dict>
-   ```
+1. Only if you stream from `http://` URLs, add App Transport Security to `macos/Runner/Info.plist` as described
+   for iOS above.
 
 2. Allow outgoing network connections in `macos/Runner/DebugProfile.entitlements` and `macos/Runner/Release.entitlements`:
    ```xml
@@ -168,17 +150,17 @@ player.positionStream.listen((pos) => print('Position: $pos'));
 player.durationStream.listen((dur) => print('Duration: $dur'));
 ```
 
-### Stream Caching
+### Request Headers
 
-Play remote audio while simultaneously downloading and caching it for offline playback:
+Headers and the user agent are sent by the platform player itself (ExoPlayer on Android, `AVURLAsset` options on
+iOS/macOS):
 
 ```dart
-final source = LockCachingAudioSource(
-  Uri.parse('https://example.com/podcast.mp3'),
+final player = AudioPlayer(userAgent: 'MyApp/1.0');
+await player.setUrl(
+  'https://example.com/stream.m3u8',
+  headers: {'Authorization': 'Bearer <token>'},
 );
-
-await player.setAudioSource(source);
-player.play();
 ```
 
 ### Audio Clipping
@@ -209,4 +191,9 @@ flutter run
 
 ## License
 
-This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+
+`audio_player` is derived from [just_audio](https://github.com/ryanheise/just_audio) and
+[just_audio_platform_interface](https://pub.dev/packages/just_audio_platform_interface),
+Copyright (c) 2019-2020 Ryan Heise and the project contributors, used under the MIT License. The Android
+implementation uses AndroidX Media3 (ExoPlayer), licensed under the Apache License 2.0.

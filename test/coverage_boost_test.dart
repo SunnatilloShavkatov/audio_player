@@ -87,6 +87,30 @@ void main() {
   });
 
   group('Coverage Boost Tests', () {
+    test('audio effects in idle state', () async {
+      final equalizer = AndroidEqualizer();
+      final enhancer = AndroidLoudnessEnhancer();
+      final player = AudioPlayer(audioPipeline: AudioPipeline(androidAudioEffects: [equalizer, enhancer]));
+
+      await equalizer.setEnabled(enabled: true);
+      expect(equalizer.enabled, isTrue);
+
+      await enhancer.setEnabled(enabled: true);
+      expect(enhancer.enabled, isTrue);
+      await enhancer.setTargetGain(1.2);
+      expect(enhancer.targetGain, equals(1.2));
+
+      // In idle state, _activate is never called so the parameters completer
+      // is never completed. Verify the future stays pending rather than
+      // awaiting it (which would timeout).
+      var parametersCompleted = false;
+      unawaited(equalizer.parameters.then((_) => parametersCompleted = true));
+      await Future<void>.delayed(Duration.zero);
+      expect(parametersCompleted, isFalse);
+
+      await player.dispose();
+    });
+
     test('idle audio player platform methods and effects', () async {
       final player = AudioPlayer();
       final idle = player.testIdlePlatform;
@@ -307,47 +331,6 @@ void main() {
       await player.dispose();
     });
 
-    test('proxy server start and stop', () async {
-      final player = AudioPlayer();
-      await player.testProxyStart();
-      await player.testProxyStop();
-
-      await player.dispose();
-    });
-
-    test('HTTP 0.9 raw socket streaming fallback in ProxyHttpServer with headers', () async {
-      // Create a raw TCP server that outputs non-HTTP / HTTP 0.9 response
-      final rawServer = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-      rawServer.listen((clientSocket) {
-        clientSocket.add(utf8.encode('Raw TCP Data Stream'));
-        unawaited(clientSocket.flush().then((_) => clientSocket.close()));
-      });
-
-      final player = AudioPlayer();
-      final uri = Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${rawServer.port}/stream');
-      // Pass headers so the proxy is engaged
-      await player.setUrl('$uri', headers: {'X-Test': '1'});
-
-      final proxyUrl = Uri.parse(player.icyMetadata!.info!.url!);
-      final socket = await Socket.connect(proxyUrl.host, proxyUrl.port);
-      // Send a custom header so lines 356, 357 and 365 run
-      socket.write('GET ${proxyUrl.path} HTTP/1.0\r\nCustom-Header: value123\r\n\r\n');
-      await socket.flush();
-      final body = await utf8.decoder.bind(socket).join();
-      await socket.close();
-      expect(body, equals('Raw TCP Data Stream'));
-
-      await rawServer.close();
-      await player.dispose();
-    });
-
-    test('LockCachingAudioSource default getCacheFile', () async {
-      final source = LockCachingAudioSource(Uri.parse('https://example.com/default_cache.mp3'));
-      expect(source.cacheFile, isNotNull);
-      final file = await source.cacheFile;
-      expect(file.path, contains('remote'));
-    });
-
     test('asset loading extraction to cache file', () async {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMessageHandler('flutter/assets', (
         ByteData? message,
@@ -371,29 +354,18 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMessageHandler('flutter/assets', null);
     });
 
-    test('AudioPlayer userAgent configuration and proxy forwarding', () async {
-      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-      String? receivedUserAgent;
-      server.listen((req) async {
-        receivedUserAgent = req.headers.value(HttpHeaders.userAgentHeader);
-        req.response.statusCode = 200;
-        req.response.write('ok');
-        await req.response.close();
-      });
-
+    test('request headers and user agent are sent to the platform with the original URL', () async {
+      final platform = AudioPlayerPlatform.instance as SimpleMockAudioPlayerPlatform;
       final player = AudioPlayer(userAgent: 'TestUserAgent/1.0');
-      final uri = Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${server.port}/test');
-      await player.setUrl('$uri', headers: {'X-Custom': '1'});
+      const url = 'https://example.com/hls/playlist.m3u8?token=abc';
+      await player.setUrl(url, headers: {'X-Custom': '1'});
 
-      final proxyUrl = Uri.parse(player.icyMetadata!.info!.url!);
-      final client = HttpClient();
-      final req = await client.getUrl(proxyUrl);
-      final resp = await req.close();
-      await resp.drain<void>();
-      client.close();
-      await server.close();
+      final playlist =
+          platform.players.values.last.lastLoadRequest!.audioSourceMessage as ConcatenatingAudioSourceMessage;
+      final source = playlist.children.single as UriAudioSourceMessage;
+      expect(source.uri, equals(url));
+      expect(source.headers, equals({'X-Custom': '1', 'User-Agent': 'TestUserAgent/1.0'}));
 
-      expect(receivedUserAgent, equals('TestUserAgent/1.0'));
       await player.dispose();
     });
 

@@ -1,3 +1,13 @@
+## Unreleased
+
+* **Breaking:** removed the local HTTP proxy server. Request headers and the user agent are always sent by the native
+  players: on Android through ExoPlayer's `setUserAgent` and `setDefaultRequestProperties`, on iOS/macOS through
+  `AVURLAssetHTTPUserAgentKey` or `AVURLAssetHTTPHeaderFieldsKey`. The `useProxyForRequestHeaders` constructor
+  parameter is removed, and apps no longer need `NSAllowsLocalNetworking` for this plugin.
+* **Breaking:** removed `StreamAudioSource`, `StreamAudioResponse` and `LockCachingAudioSource`, which were served
+  through the proxy.
+* Removed the `crypto` dependency.
+
 ## 1.0.1
 
 * Fix: on iOS/macOS an invalid source passed to `load` no longer leaves the player stuck in `loading`, and a load

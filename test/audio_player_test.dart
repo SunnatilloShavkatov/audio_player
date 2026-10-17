@@ -1,6 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:audio_player/audio_player.dart';
@@ -13,10 +11,7 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  // We need an actual HttpClient to test the proxy server.
-  final overrides = MyHttpOverrides();
-  HttpOverrides.global = overrides;
-  HttpOverrides.runWithHttpOverrides(runTests, overrides);
+  runTests();
 }
 
 void runTests() {
@@ -385,52 +380,6 @@ void runTests() {
     await player.dispose();
   });
 
-  test('proxy', () async {
-    final server = MockWebServer();
-    await server.start();
-    final player = AudioPlayer();
-    // This simulates an actual URL
-    final headers = {'custom-header': 'Hello', 'accept-encoding': 'custom-encoding'};
-    final uri = Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${server.port}/proxy/foo.mp3');
-    await player.setUrl('$uri', headers: headers);
-    // Obtain the proxy URL that the platform side should use to load the data.
-    final proxyUri = Uri.parse(player.icyMetadata!.info!.url!);
-    // Simulate the platform side requesting the data.
-    final request = await HttpClient().getUrl(proxyUri);
-    final response = await request.close();
-    final responseText = await response.transform(utf8.decoder).join();
-    expect(response.statusCode, equals(HttpStatus.ok));
-    expect(responseText, equals('Hello'));
-    expect(response.headers.value(HttpHeaders.contentTypeHeader), equals('audio/mock'));
-    // MockWebServer returns original request headers in response headers
-    // (with 'original_' prepended)
-    headers.forEach((key, value) => expect(response.headers.value('original_$key'), value));
-    await server.stop();
-    await player.dispose();
-  });
-
-  test('proxy rejects unknown paths and methods', () async {
-    final server = MockWebServer();
-    await server.start();
-    final player = AudioPlayer();
-    final uri = Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${server.port}/proxy/foo.mp3');
-    await player.setUrl('$uri', headers: {'custom-header': 'Hello'});
-    final proxyUri = Uri.parse(player.icyMetadata!.info!.url!);
-    final client = HttpClient();
-    final unknown = await (await client.getUrl(proxyUri.replace(path: '/unknown.mp3'))).close();
-    await unknown.drain<void>();
-    expect(unknown.statusCode, equals(HttpStatus.notFound));
-    final post = await (await client.postUrl(proxyUri)).close();
-    await post.drain<void>();
-    expect(post.statusCode, equals(HttpStatus.methodNotAllowed));
-    // The server keeps serving registered paths afterwards.
-    final ok = await (await client.getUrl(proxyUri)).close();
-    expect(await ok.transform(utf8.decoder).join(), equals('Hello'));
-    client.close();
-    await server.stop();
-    await player.dispose();
-  });
-
   test('play completes on pause when the playlist is empty', () async {
     final player = AudioPlayer();
     var completed = false;
@@ -464,76 +413,6 @@ void runTests() {
       final position = await stream.first;
       expectDuration(position, Duration.zero);
     }
-    await player.dispose();
-  });
-
-  test('proxy0.9', () async {
-    final server = MockWebServer();
-    await server.start();
-    final player = AudioPlayer();
-    // This simulates an actual URL
-    final uri = Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${server.port}/proxy0.9/foo.mp3');
-    await player.setUrl('$uri');
-    // Obtain the proxy URL that the platform side should use to load the data.
-    final proxyUri = Uri.parse(player.icyMetadata!.info!.url!);
-    // Simulate the platform side requesting the data.
-    final socket = await Socket.connect(proxyUri.host, proxyUri.port);
-    //final socket = await Socket.connect(uri.host, uri.port);
-    socket.write('GET ${uri.path} HTTP/1.0\n\n');
-    await socket.flush();
-    final responseText = await utf8.decoder.bind(socket).join();
-    await socket.close();
-    expect(responseText, equals('Hello'));
-    await server.stop();
-    await player.dispose();
-  });
-
-  test('stream-source', () async {
-    final server = MockWebServer();
-    await server.start();
-    final player = AudioPlayer();
-    // This simulates an actual URL
-    await player.setAudioSource(TestStreamAudioSource(tag: 'stream-test'));
-    // Obtain the proxy URL that the platform side should use to load the data.
-    final proxyUri = Uri.parse(player.icyMetadata!.info!.url!);
-    // Simulate the platform side requesting the data.
-    Future<void> testRequest(int? start, int? end) async {
-      final request = await HttpClient().getUrl(proxyUri);
-      if (start != null && end != null) {
-        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$start-${end - 1}');
-      } else if (start != null) {
-        request.headers.set(HttpHeaders.rangeHeader, 'bytes=$start-');
-      }
-      final response = await request.close();
-      //final responseData = await response.expand((chunk) => chunk).toList();
-      final responseData = <int>[];
-      await response.forEach(responseData.addAll);
-      expect(responseData, equals(byteRangeData.sublist(start ?? 0, end ?? byteRangeData.length)));
-      expect(response.contentLength, (end ?? byteRangeData.length) - (start ?? 0));
-      if (start != null && end != null) {
-        expect(
-          response.headers.value(HttpHeaders.contentRangeHeader),
-          'bytes $start-${end - 1}/${byteRangeData.length}',
-        );
-        expect(response.statusCode, equals(HttpStatus.partialContent));
-      } else if (start != null) {
-        expect(
-          response.headers.value(HttpHeaders.contentRangeHeader),
-          'bytes $start-${byteRangeData.length - 1}/${byteRangeData.length}',
-        );
-        expect(response.statusCode, equals(HttpStatus.partialContent));
-      } else {
-        expect(response.headers.value(HttpHeaders.contentRangeHeader), null);
-        expect(response.statusCode, equals(HttpStatus.ok));
-      }
-      expect(response.headers.value(HttpHeaders.contentTypeHeader), equals('audio/mock'));
-    }
-
-    await testRequest(null, null);
-    await testRequest(20, null);
-    await testRequest(20, 60);
-
-    await server.stop();
     await player.dispose();
   });
 
@@ -1735,53 +1614,5 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 class MockLoadRequest {
   bool interrupted = false;
 }
-
-final byteRangeData = List.generate(200, (i) => i);
-
-class TestStreamAudioSource extends StreamAudioSource {
-  new({super.tag});
-
-  @override
-  Future<StreamAudioResponse> request([int? start, int? end]) async => StreamAudioResponse(
-    contentType: 'audio/mock',
-    stream: Stream.value(byteRangeData.sublist(start ?? 0, end)),
-    contentLength: (end ?? byteRangeData.length) - (start ?? 0),
-    offset: start ?? 0,
-    sourceLength: byteRangeData.length,
-  );
-}
-
-class MockWebServer {
-  late HttpServer _server;
-  int get port => _server.port;
-
-  Future<void> start() async {
-    _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    _server.listen((request) async {
-      final response = request.response;
-      if (request.uri.path == '/proxy0.9/foo.mp3') {
-        final body = utf8.encode('Hello');
-        final clientSocket = await request.response.detachSocket(writeHeaders: false);
-        clientSocket.add(body);
-        await clientSocket.flush();
-        await clientSocket.close();
-      } else {
-        final body = utf8.encode('Hello');
-        response
-          ..contentLength = body.length
-          ..statusCode = HttpStatus.ok
-          ..headers.set(HttpHeaders.contentTypeHeader, 'audio/mock');
-        request.headers.forEach((name, value) => response.headers.set('original_$name', value));
-        response.add(body);
-        await response.flush();
-        await response.close();
-      }
-    });
-  }
-
-  Future<void> stop() => _server.close();
-}
-
-class MyHttpOverrides extends HttpOverrides;
 
 T? _ambiguate<T>(T? value) => value;

@@ -19,8 +19,8 @@ abstract class AudioSource {
   /// it is, you should instantiate [DashAudioSource] or [HlsAudioSource]
   /// directly.
   ///
-  /// If headers are set, audio_player will create a cleartext local HTTP proxy on
-  /// your device to forward HTTP requests with headers included.
+  /// Any [headers] are sent with the HTTP(S) requests made by the platform
+  /// player.
   ///
   /// The [tag] is for associating your app's own data with each audio source,
   /// e.g. title, cover art, a primary key for your DB. Such data can be
@@ -140,12 +140,6 @@ abstract class UriAudioSource extends IndexedAudioSource {
     await super._onLoad();
     if (uri.scheme == 'asset') {
       _overrideUri = await _loadAsset(uri.pathSegments.join('/'));
-    } else if (uri.scheme != 'file' &&
-        !kIsWeb &&
-        _player!._useProxyForRequestHeaders &&
-        (headers != null || _player!._userAgent != null)) {
-      await _player!._proxy.ensureRunning();
-      _overrideUri = _player!._proxy.addUriAudioSource(this);
     }
   }
 
@@ -208,9 +202,6 @@ abstract class UriAudioSource extends IndexedAudioSource {
 ///
 /// On platforms except for the web, the supplied [headers] will be passed with
 /// the HTTP(S) request.
-///
-/// If headers are set, audio_player will create a cleartext local HTTP proxy on
-/// your device to forward HTTP requests with headers included.
 class ProgressiveAudioSource extends UriAudioSource {
   new(super.uri, {super.headers, super.tag, super.duration, this.options});
 
@@ -235,10 +226,7 @@ class ProgressiveAudioSource extends UriAudioSource {
 /// * http(s): loads from an HTTP(S) resource.
 ///
 /// On platforms except for the web, the supplied [headers] will be passed with
-/// the HTTP(S) request. Currently headers are not applied recursively.
-///
-/// If headers are set, audio_player will create a cleartext local HTTP proxy on
-/// your device to forward HTTP requests with headers included.
+/// the HTTP(S) requests made by the platform player.
 class DashAudioSource extends UriAudioSource {
   new(super.uri, {super.headers, super.tag, super.duration});
 
@@ -256,10 +244,7 @@ class DashAudioSource extends UriAudioSource {
 /// * http(s): loads from an HTTP(S) resource.
 ///
 /// On platforms except for the web, the supplied [headers] will be passed with
-/// the HTTP(S) request. Currently headers are not applied recursively.
-///
-/// If headers are set, audio_player will create a cleartext local HTTP proxy on
-/// your device to forward HTTP requests with headers included.
+/// the HTTP(S) requests made by the platform player.
 class HlsAudioSource extends UriAudioSource {
   new(super.uri, {super.headers, super.tag, super.duration});
 

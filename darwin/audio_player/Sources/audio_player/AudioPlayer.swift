@@ -409,7 +409,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     }
 
     func metadataOutput(_ output: AVPlayerItemMetadataOutput, didOutputTimedMetadataGroups groups: [AVTimedMetadataGroup], from track: AVPlayerItemTrack?) {
-        // ICY headers aren't available here. Maybe do this in the proxy.
+        // ICY headers aren't available here; only the timed metadata is.
         var hasIcyData = false
         var title: String?
         var url: String?

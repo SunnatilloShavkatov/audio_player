@@ -9,10 +9,8 @@ import 'package:audio_player/src/player_state.dart';
 import 'package:audio_player/src/sequence_state.dart';
 import 'package:audio_player/src/shuffle_order.dart';
 import 'package:audio_session/audio_session.dart';
-import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:meta/meta.dart' show experimental, visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:rxdart/rxdart.dart';
@@ -20,14 +18,12 @@ import 'package:synchronized/synchronized.dart';
 
 part 'audio_effects.dart';
 part 'internal/idle_audio_player.dart';
-part 'internal/proxy_http_server.dart';
 part 'internal/utils.dart';
 part 'load_configuration.dart';
 part 'metadata.dart';
 part 'platform_options.dart';
 part 'sources/audio_source.dart';
 part 'sources/composite_audio_source.dart';
-part 'sources/stream_audio_source.dart';
 
 AudioPlayerPlatform? _pluginPlatformCache;
 
@@ -79,17 +75,12 @@ class AudioPlayer {
   /// where the browser's user agent will be used) to identify the client. If
   /// unspecified, a platform-specific default will be supplied.
   ///
-  /// Request headers including `user-agent` are sent by default via a local
-  /// HTTP proxy which requires non-HTTPS support to be enabled (see the README
-  /// page for setup instructions). Alternatively, you can set
-  /// [_useProxyForRequestHeaders] to `false` to allow supported platforms to
-  /// send the request headers directly without use of the proxy. On iOS/macOS,
-  /// this will use the `AVURLAssetHTTPUserAgentKey` on iOS 16 and above, and
-  /// macOS 13 and above, if `user-agent` is the only header used. Otherwise,
-  /// the `AVURLAssetHTTPHeaderFieldsKey` key will be used. On Android, this
-  /// will use ExoPlayer's `setUserAgent` and `setDefaultRequestProperties`.
-  /// For Linux/Windows federated platform implementations, refer to the
-  /// documentation for that implementation's support.
+  /// Request headers including `user-agent` are sent by the platform player
+  /// itself. On iOS/macOS, this uses the `AVURLAssetHTTPUserAgentKey` on iOS 16
+  /// and above, and macOS 13 and above, if `user-agent` is the only header
+  /// used. Otherwise, the `AVURLAssetHTTPHeaderFieldsKey` key is used. On
+  /// Android, this uses ExoPlayer's `setUserAgent` and
+  /// `setDefaultRequestProperties`.
   ///
   /// The player will automatically pause/duck and resume/unduck when audio
   /// interruptions occur (e.g. a phone call) or when headphones are unplugged.
@@ -127,7 +118,6 @@ class AudioPlayer {
     this._audioLoadConfiguration,
     AudioPipeline? audioPipeline,
     this._androidAudioOffloadPreferences,
-    this._useProxyForRequestHeaders = true,
     bool useLazyPreparation = true,
     ShuffleOrder? shuffleOrder,
     int maxSkipsOnError = 0,
@@ -323,9 +313,6 @@ class AudioPlayer {
   /// The user agent to set on all HTTP requests.
   final String? _userAgent;
 
-  /// Whether to use the proxy server to send request headers.
-  final bool _useProxyForRequestHeaders;
-
   final AudioLoadConfiguration? _audioLoadConfiguration;
 
   final AndroidAudioOffloadPreferences? _androidAudioOffloadPreferences;
@@ -371,7 +358,6 @@ class AudioPlayer {
   StreamSubscription<void>? _errorsResetSubscription;
 
   String? _id;
-  final _proxy = _ProxyHttpServer();
 
   final _PlaylistAudioSource _playlist;
   final Map<String, AudioSource> _audioSources = {};
@@ -776,8 +762,6 @@ class AudioPlayer {
 
   /// Convenience method to set the audio source to a URL with optional headers,
   /// preloaded by default, with an initial position of zero by default.
-  /// If headers are set, audio_player will create a cleartext local HTTP proxy on
-  /// your device to forward HTTP requests with headers included.
   ///
   /// This is equivalent to:
   ///
@@ -1009,15 +993,7 @@ class AudioPlayer {
     }
 
     collect(_playlist);
-    _audioSources.removeWhere((id, source) {
-      if (attachedIds.contains(id)) {
-        return false;
-      }
-      if (source is StreamAudioSource && !kIsWeb) {
-        _proxy.removeStreamAudioSource(source);
-      }
-      return true;
-    });
+    _audioSources.removeWhere((id, _) => !attachedIds.contains(id));
   }
 
   Future<Duration?> _load(
@@ -1519,7 +1495,6 @@ class AudioPlayer {
       s._dispose();
     }
     _audioSources.clear();
-    unawaited(_proxy.stop());
     await _playerDataSubscription?.cancel();
     await _playbackEventSubscription?.cancel();
     await _androidAudioAttributesSubscription?.cancel();
@@ -1966,12 +1941,6 @@ class AudioPlayer {
 
   @visibleForTesting
   Exception testConvertException(PlatformException e) => _convertException(e);
-
-  @visibleForTesting
-  Future<void> testProxyStart() => _proxy.start();
-
-  @visibleForTesting
-  Future<void> testProxyStop() => _proxy.stop();
 
   @visibleForTesting
   static Uri testEncodeDataUrl(String base64Data, String mimeType) => _encodeDataUrl(base64Data, mimeType);

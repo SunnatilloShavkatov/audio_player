@@ -1,13 +1,14 @@
 # AGENTS.md
 
-`audio_player`: Flutter audio plugin (just_audio-style; gapless playlists, clipping, caching, HLS/DASH, effects),
+`audio_player`: Flutter audio plugin (just_audio-style; gapless playlists, clipping, HLS/DASH, effects),
 published as `uz.plugin.audio_player`.
 
 ## Layout
 
 - `lib/src/audio_player.dart` — `AudioPlayer` + streams (RxDart); `lib/src/sources/` — `AudioSource` types;
-  `lib/src/platform_interface/` — platform interface + `MethodChannel` impl; `lib/src/internal/` — proxy server,
-  idle player (not public API). `lib/audio_player.dart` is the public barrel.
+  `lib/src/platform_interface/` — platform interface + `MethodChannel` impl; `lib/src/internal/` — idle player,
+  helpers (not public API). `lib/audio_player.dart` is the public barrel. There is no local proxy: request headers
+  and the user agent go to the native players in the source messages.
 - Android (Media3/ExoPlayer): `android/src/main/kotlin/uz/plugin/audio_player/`.
 - iOS + macOS (AVPlayer): one shared Swift set in `darwin/audio_player/Sources/audio_player/`
   (`#if os(iOS)` / `#elseif os(macOS)`). A Swift change hits both platforms.

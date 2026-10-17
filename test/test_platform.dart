@@ -119,22 +119,19 @@ class SimpleMockAudioPlayerInstance extends AudioPlayerInstancePlatform {
   ) async => SetCanUseNetworkResourcesForLiveStreamingWhilePausedResponse();
 
   @override
-  Future<SetPreferredPeakBitRateResponse> setPreferredPeakBitRate(
-    SetPreferredPeakBitRateRequest request,
-  ) async => SetPreferredPeakBitRateResponse();
+  Future<SetPreferredPeakBitRateResponse> setPreferredPeakBitRate(SetPreferredPeakBitRateRequest request) async =>
+      SetPreferredPeakBitRateResponse();
 
   @override
-  Future<SetAllowsExternalPlaybackResponse> setAllowsExternalPlayback(
-    SetAllowsExternalPlaybackRequest request,
-  ) async => SetAllowsExternalPlaybackResponse();
+  Future<SetAllowsExternalPlaybackResponse> setAllowsExternalPlayback(SetAllowsExternalPlaybackRequest request) async =>
+      SetAllowsExternalPlaybackResponse();
 
   @override
   Future<SeekResponse> seek(SeekRequest request) async => SeekResponse();
 
   @override
-  Future<SetAndroidAudioAttributesResponse> setAndroidAudioAttributes(
-    SetAndroidAudioAttributesRequest request,
-  ) async => SetAndroidAudioAttributesResponse();
+  Future<SetAndroidAudioAttributesResponse> setAndroidAudioAttributes(SetAndroidAudioAttributesRequest request) async =>
+      SetAndroidAudioAttributesResponse();
 
   @override
   Future<DisposeResponse> dispose(DisposeRequest request) async {
@@ -144,24 +141,20 @@ class SimpleMockAudioPlayerInstance extends AudioPlayerInstancePlatform {
   }
 
   @override
-  Future<ConcatenatingInsertAllResponse> concatenatingInsertAll(
-    ConcatenatingInsertAllRequest request,
-  ) async => ConcatenatingInsertAllResponse();
+  Future<ConcatenatingInsertAllResponse> concatenatingInsertAll(ConcatenatingInsertAllRequest request) async =>
+      ConcatenatingInsertAllResponse();
 
   @override
-  Future<ConcatenatingRemoveRangeResponse> concatenatingRemoveRange(
-    ConcatenatingRemoveRangeRequest request,
-  ) async => ConcatenatingRemoveRangeResponse();
+  Future<ConcatenatingRemoveRangeResponse> concatenatingRemoveRange(ConcatenatingRemoveRangeRequest request) async =>
+      ConcatenatingRemoveRangeResponse();
 
   @override
-  Future<ConcatenatingMoveResponse> concatenatingMove(
-    ConcatenatingMoveRequest request,
-  ) async => ConcatenatingMoveResponse();
+  Future<ConcatenatingMoveResponse> concatenatingMove(ConcatenatingMoveRequest request) async =>
+      ConcatenatingMoveResponse();
 
   @override
-  Future<AudioEffectSetEnabledResponse> audioEffectSetEnabled(
-    AudioEffectSetEnabledRequest request,
-  ) async => AudioEffectSetEnabledResponse();
+  Future<AudioEffectSetEnabledResponse> audioEffectSetEnabled(AudioEffectSetEnabledRequest request) async =>
+      AudioEffectSetEnabledResponse();
 
   @override
   Future<AndroidLoudnessEnhancerSetTargetGainResponse> androidLoudnessEnhancerSetTargetGain(
