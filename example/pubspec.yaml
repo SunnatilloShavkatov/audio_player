@@ -1,0 +1,26 @@
+name: audio_player_example
+version: 1.0.0+1
+publish_to: "none"
+description: "Demonstrates how to use the audio_player plugin."
+
+environment:
+  sdk: ">=3.13.0 <4.0.0"
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  rxdart: ^0.28.0
+  audio_session: ^0.2.4
+  audio_player:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  test: any
+  analysis_lints: ^1.1.0
+
+flutter:
+  uses-material-design: true
+

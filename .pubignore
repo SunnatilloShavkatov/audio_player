@@ -1,0 +1,91 @@
+# NOTE: when a .pubignore exists, `dart pub publish` ignores the .gitignore in
+# the same directory, so everything from .gitignore is repeated below.
+# Keep the "Same as .gitignore" section in sync with .gitignore.
+
+# Publish-only exclusions (tracked in git, not needed by package consumers)
+/example/integration_test/
+/example/test_driver/
+
+# ---- Same as .gitignore ----
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+
+# IDEs
+*.iml
+*.ipr
+*.iws
+.idea/
+.vscode/
+
+# Dart / Flutter / pub
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+**/build/
+**/doc/api/
+coverage/
+# Libraries must not commit lock files (pub.dev guideline)
+pubspec.lock
+
+# Android
+**/android/**/gradle-wrapper.jar
+**/android/.gradle
+**/android/.cxx
+**/android/captures/
+**/android/gradlew
+**/android/gradlew.bat
+**/android/local.properties
+**/android/**/GeneratedPluginRegistrant.java
+*.keystore
+*.jks
+
+# iOS / macOS / Xcode
+**/ios/**/*.mode1v3
+**/ios/**/*.mode2v3
+**/ios/**/*.moved-aside
+**/ios/**/*.pbxuser
+**/ios/**/*.perspectivev3
+**/ios/**/*sync/
+**/ios/**/.sconsign.dblite
+**/ios/**/.tags*
+**/ios/**/.vagrant/
+**/ios/**/DerivedData/
+**/ios/**/Icon?
+**/ios/**/profile
+**/ios/**/xcuserdata
+**/ios/.generated/
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/Flutter/flutter_assets/
+**/ios/ServiceDefinitions.json
+**/ios/Runner/GeneratedPluginRegistrant.*
+**/Flutter/Generated.xcconfig
+**/Flutter/ephemeral/
+**/Pods/
+**/.symlinks/
+.build/
+.swiftpm/
+flutter_export_environment.sh
+GeneratedPluginRegistrant.*
+generated_plugin_registrant.dart
+
+# Exceptions to the rules above
+!**/ios/**/default.mode1v3
+!**/ios/**/default.mode2v3
+!**/ios/**/default.pbxuser
+!**/ios/**/default.perspectivev3
+/example/android/.kotlin/
