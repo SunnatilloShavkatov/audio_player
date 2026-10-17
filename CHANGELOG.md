@@ -38,7 +38,7 @@
 * Docs: the `AudioPlayer` constructor documents `userAgent`, `handleAudioSessionActivation`, `audioLoadConfiguration`
   and `androidAudioOffloadPreferences` by their public names, and `setPreferredPeakBitRate` documents its default of
   0 (no limit).
-* Removed the `crypto` dependency.
+* Removed the `crypto`, `path` and `meta` dependencies.
 
 ## 1.0.1
 

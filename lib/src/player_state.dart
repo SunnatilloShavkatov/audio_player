@@ -1,5 +1,5 @@
 import 'package:audio_player/src/audio_player.dart';
-import 'package:meta/meta.dart';
+import 'package:flutter/foundation.dart';
 
 /// Encapsulates the playback event and the playing state of the player.
 @immutable

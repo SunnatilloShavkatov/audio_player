@@ -347,7 +347,15 @@ void main() {
       await player.dispose();
     });
 
-    test('asset loading extraction to cache file', () async {
+    /// Loads the asset `assets/test.mp3` while the temporary directory is
+    /// reported as [tempDirPath], and checks that it is extracted into the
+    /// cache directory under `mockTempDir` and that the platform gets that
+    /// file's URI.
+    Future<void> expectAssetExtractedToCache(String tempDirPath) async {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMethodCallHandler(
+        pathProviderChannel,
+        (methodCall) async => methodCall.method == 'getTemporaryDirectory' ? tempDirPath : null,
+      );
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMessageHandler('flutter/assets', (
         ByteData? message,
       ) async {
@@ -358,16 +366,30 @@ void main() {
         return null;
       });
 
+      final platform = AudioPlayerPlatform.instance as SimpleMockAudioPlayerPlatform;
       final player = AudioPlayer();
       final source = AudioSource.asset('assets/test.mp3');
       await player.setAudioSource(source);
 
       expect(player.sequence.length, equals(1));
+      final cacheFile = File('${mockTempDir.path}/audio_player_cache/assets/assets/test.mp3');
+      expect(cacheFile.readAsStringSync(), equals('AssetAudioData'));
+      final playlist =
+          platform.players.values.last.lastLoadRequest!.audioSourceMessage as ConcatenatingAudioSourceMessage;
+      expect((playlist.children.single as UriAudioSourceMessage).uri, equals(Uri.file(cacheFile.path).toString()));
 
       await AudioPlayer.clearAssetCache();
       await player.dispose();
 
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger.setMockMessageHandler('flutter/assets', null);
+    }
+
+    test('asset loading extraction to cache file', () async {
+      await expectAssetExtractedToCache(mockTempDir.path);
+    });
+
+    test('asset cache path does not double a trailing separator of the temporary directory', () async {
+      await expectAssetExtractedToCache('${mockTempDir.path}/');
     });
 
     test('request headers and user agent are sent to the platform with the original URL', () async {

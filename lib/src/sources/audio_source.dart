@@ -162,7 +162,7 @@ abstract class UriAudioSource extends IndexedAudioSource {
 
   /// Gets the cache file for an asset with the proper extension
   Future<File> _getCacheFile(String assetPath) async =>
-      File(p.joinAll([(await _getCacheDir()).path, 'assets', ...Uri.parse(assetPath).pathSegments]));
+      File(_joinPath([(await _getCacheDir()).path, 'assets', ...Uri.parse(assetPath).pathSegments]));
 }
 
 /// An [AudioSource] representing a regular media file such as an MP3 or M4A

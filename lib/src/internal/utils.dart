@@ -1,6 +1,17 @@
 part of '../audio_player.dart';
 
-Future<Directory> _getCacheDir() async => Directory(p.join((await getTemporaryDirectory()).path, 'audio_player_cache'));
+Future<Directory> _getCacheDir() async =>
+    Directory(_joinPath([(await getTemporaryDirectory()).path, 'audio_player_cache']));
+
+/// Joins [parts] with [Platform.pathSeparator]. Empty parts are skipped, and no
+/// separator is added after a part that already ends with one.
+String _joinPath(Iterable<String> parts) => parts
+    .where((part) => part.isNotEmpty)
+    .fold(
+      '',
+      (path, part) =>
+          path.isEmpty || path.endsWith(Platform.pathSeparator) ? '$path$part' : '$path${Platform.pathSeparator}$part',
+    );
 
 final _secureRandom = Random.secure();
 
