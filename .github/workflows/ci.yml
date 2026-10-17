@@ -113,6 +113,9 @@ jobs:
           api-level: 34
           arch: x86_64
           target: google_apis
+          # The emulator's default for API 34 is 2560 MB, and adbd inside the guest has failed to fork right after
+          # boot ("fork failed: Out of memory", exit 126). The public 16 GB runner has room for more.
+          ram-size: 4096M
           disable-animations: true
           working-directory: example
           script: flutter test integration_test
