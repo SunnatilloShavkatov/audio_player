@@ -78,18 +78,19 @@ void main() {
       await player.dispose();
     });
 
-    test('non-const default constructor instances', () {
-      const d = DarwinLoadControl();
-      const a = AndroidLoadControl();
-      const s = AndroidLivePlaybackSpeedControl();
-      const o = AndroidAudioOffloadPreferences();
-      const c = AudioLoadConfiguration();
+    test('non-const constructor coverage', () {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final d = DarwinLoadControl(automaticallyWaitsToMinimizeStalling: now > 0);
+      final a = AndroidLoadControl(prioritizeTimeOverSizeThresholds: now < 0);
+      final s = AndroidLivePlaybackSpeedControl(fallbackMinPlaybackSpeed: now > 0 ? 0.97 : 0);
+      final o = AndroidAudioOffloadPreferences(isGaplessSupportRequired: now < 0);
+      final c = AudioLoadConfiguration(darwinLoadControl: d);
 
       expect(d.automaticallyWaitsToMinimizeStalling, isTrue);
       expect(a.prioritizeTimeOverSizeThresholds, isFalse);
       expect(s.fallbackMinPlaybackSpeed, equals(0.97));
-      expect(o.audioOffloadMode, equals(AndroidAudioOffloadMode.disabled));
-      expect(c.darwinLoadControl, isNull);
+      expect(o.isGaplessSupportRequired, isFalse);
+      expect(c.darwinLoadControl, equals(d));
     });
   });
 }

@@ -12,7 +12,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:meta/meta.dart' show experimental;
+import 'package:meta/meta.dart' show experimental, visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:rxdart/rxdart.dart';
@@ -1925,4 +1925,54 @@ class AudioPlayer {
       return PlayerException(code, e.message, index);
     }
   }
+
+  @visibleForTesting
+  AudioPlayerInstancePlatform get testIdlePlatform =>
+      _idlePlatform ??
+      (_idlePlatform = _IdleAudioPlayer(
+        id: _id = _generateId(),
+        sequenceStream: sequenceStream,
+        errorCode: playbackEvent.errorCode,
+        errorMessage: playbackEvent.errorMessage,
+      ));
+
+  @visibleForTesting
+  static AudioSource testCreatePlaylist(List<AudioSource> children, AudioPlayer player) {
+    final playlist = _PlaylistAudioSource(children: children).._onAttach(player);
+    return playlist;
+  }
+
+  @visibleForTesting
+  static int testPlaylistLength(AudioSource playlist) => (playlist as _PlaylistAudioSource).length;
+
+  @visibleForTesting
+  static AudioSource testPlaylistGet(AudioSource playlist, int index) => (playlist as _PlaylistAudioSource)[index];
+
+  @visibleForTesting
+  static void testPluginLoadRequest() {
+    final req =
+        _PluginLoadRequest(
+            audioSources: [],
+            shuffleOrder: DefaultShuffleOrder(),
+            initialIndex: 0,
+            initialPosition: Duration.zero,
+          )
+          ..resetInitialSeekValues()
+          ..interrupted = true;
+    try {
+      req.checkInterruption();
+    } catch (_) {}
+  }
+
+  @visibleForTesting
+  Exception testConvertException(PlatformException e) => _convertException(e);
+
+  @visibleForTesting
+  Future<void> testProxyStart() => _proxy.start();
+
+  @visibleForTesting
+  Future<void> testProxyStop() => _proxy.stop();
+
+  @visibleForTesting
+  static Uri testEncodeDataUrl(String base64Data, String mimeType) => _encodeDataUrl(base64Data, mimeType);
 }

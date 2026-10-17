@@ -44,76 +44,79 @@ void main() {
 
       server = (await HttpServer.bind(InternetAddress.loopbackIPv4, 0))
         ..listen((request) async {
-        if (request.uri.path == '/404.mp3') {
-          request.response.statusCode = HttpStatus.notFound;
-          await request.response.close();
-          return;
-        }
+          if (request.uri.path == '/404.mp3') {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
 
-        final range = request.headers.value(HttpHeaders.rangeHeader);
-        if (range != null && range.startsWith('bytes=')) {
-          final parts = range.substring(6).split('-');
-          final start = int.parse(parts[0]);
-          final end = parts[1].isNotEmpty ? int.parse(parts[1]) : testData.length - 1;
-          final chunk = testData.sublist(start, end + 1);
+          if (request.uri.path == '/500.mp3') {
+            request.response.statusCode = HttpStatus.internalServerError;
+            await request.response.close();
+            return;
+          }
 
-          request.response
-            ..statusCode = HttpStatus.partialContent
-            ..headers.set(HttpHeaders.contentTypeHeader, 'audio/mpeg')
-            ..headers.set(HttpHeaders.acceptRangesHeader, 'bytes')
-            ..headers.set(
-              HttpHeaders.contentRangeHeader,
-              'bytes $start-$end/${testData.length}',
-            )
-            ..contentLength = chunk.length
-            ..add(chunk);
-          await request.response.close();
-          return;
-        }
+          final range = request.headers.value(HttpHeaders.rangeHeader);
+          if (range != null && range.startsWith('bytes=')) {
+            final parts = range.substring(6).split('-');
+            final start = int.parse(parts[0]);
+            final end = parts[1].isNotEmpty ? int.parse(parts[1]) : testData.length - 1;
+            final chunk = testData.sublist(start, end + 1);
 
-        if (request.uri.path == '/abort.mp3') {
+            request.response
+              ..statusCode = HttpStatus.partialContent
+              ..headers.set(HttpHeaders.contentTypeHeader, 'audio/mpeg')
+              ..headers.set(HttpHeaders.acceptRangesHeader, 'bytes')
+              ..headers.set(HttpHeaders.contentRangeHeader, 'bytes $start-$end/${testData.length}')
+              ..contentLength = chunk.length
+              ..add(chunk);
+            await request.response.close();
+            return;
+          }
+
+          if (request.uri.path == '/abort.mp3') {
+            request.response
+              ..statusCode = HttpStatus.ok
+              ..headers.set(HttpHeaders.contentTypeHeader, 'audio/mpeg')
+              ..headers.set(HttpHeaders.acceptRangesHeader, 'bytes')
+              ..contentLength = testData.length;
+            request.response.add(testData.sublist(0, 10));
+            await request.response.flush();
+            request.response.addError(const HttpException('Simulated connection reset'));
+            await request.response.close().catchError((_) {});
+            return;
+          }
+
+          if (request.uri.path == '/slow.mp3') {
+            request.response.bufferOutput = false;
+            request.response
+              ..statusCode = HttpStatus.ok
+              ..headers.set(HttpHeaders.contentTypeHeader, 'audio/mpeg')
+              ..headers.set(HttpHeaders.acceptRangesHeader, 'bytes')
+              ..contentLength = testData.length;
+            request.response.add(testData.sublist(0, 30));
+            await request.response.flush();
+            if (slowChunk2Completer != null) {
+              await slowChunk2Completer!.future;
+            }
+            request.response.add(testData.sublist(30, 60));
+            await request.response.flush();
+            if (slowChunk3Completer != null) {
+              await slowChunk3Completer!.future;
+            }
+            request.response.add(testData.sublist(60));
+            await request.response.close();
+            return;
+          }
+
           request.response
             ..statusCode = HttpStatus.ok
             ..headers.set(HttpHeaders.contentTypeHeader, 'audio/mpeg')
             ..headers.set(HttpHeaders.acceptRangesHeader, 'bytes')
-            ..contentLength = testData.length;
-          request.response.add(testData.sublist(0, 10));
-          await request.response.flush();
-          request.response.addError(const HttpException('Simulated connection reset'));
-          await request.response.close().catchError((_) {});
-          return;
-        }
-
-        if (request.uri.path == '/slow.mp3') {
-          request.response.bufferOutput = false;
-          request.response
-            ..statusCode = HttpStatus.ok
-            ..headers.set(HttpHeaders.contentTypeHeader, 'audio/mpeg')
-            ..headers.set(HttpHeaders.acceptRangesHeader, 'bytes')
-            ..contentLength = testData.length;
-          request.response.add(testData.sublist(0, 30));
-          await request.response.flush();
-          if (slowChunk2Completer != null) {
-            await slowChunk2Completer!.future;
-          }
-          request.response.add(testData.sublist(30, 60));
-          await request.response.flush();
-          if (slowChunk3Completer != null) {
-            await slowChunk3Completer!.future;
-          }
-          request.response.add(testData.sublist(60));
+            ..contentLength = testData.length
+            ..add(testData);
           await request.response.close();
-          return;
-        }
-
-        request.response
-          ..statusCode = HttpStatus.ok
-          ..headers.set(HttpHeaders.contentTypeHeader, 'audio/mpeg')
-          ..headers.set(HttpHeaders.acceptRangesHeader, 'bytes')
-          ..contentLength = testData.length
-          ..add(testData);
-        await request.response.close();
-      });
+        });
     });
 
     tearDown(() async {
@@ -185,21 +188,37 @@ void main() {
       final resp1 = await source.request(0, 20);
       expect(await resp1.stream.first, equals(testData.sublist(0, 20)));
       expect(source.clearCache, throwsA(isA<Exception>()));
-      final inProgressReqFuture = source.request(25, 50);
+
+      // Chunk 1 has 30 bytes. Make requests with start < progress (30) and end > 60:
+      // req1: end = 80 (effectiveEnd 80 > chunk 2's 60 bytes, so it creates _InProgressCacheResponse
+      // and completes when chunk 3 arrives)
+      final inProgressReq1Future = source.request(10, 80);
+      // req2: end = null (end is null, so when chunk 3 arrives it takes the line 228 branch)
+      final inProgressReq2Future = source.request(15);
+      // outOfBand request: start = 70 (start >= progress)
       final outOfBandReqFuture = source.request(70, 90);
+
+      // Trigger chunk 2 (bytes 30..60 arrive; progress reaches 60, which is < 80)
       slowChunk2Completer!.complete();
-      final inProgressResp = await inProgressReqFuture;
-      final inProgressBytes = <int>[];
-      final inProgressDone = inProgressResp.stream.forEach(inProgressBytes.addAll);
+
+      final inProgressResp1 = await inProgressReq1Future;
+      final inProgressBytes1 = <int>[];
+      final inProgressDone1 = inProgressResp1.stream.forEach(inProgressBytes1.addAll);
+
+      final inProgressResp2 = await inProgressReq2Future;
+      final inProgressBytes2 = <int>[];
+      final inProgressDone2 = inProgressResp2.stream.forEach(inProgressBytes2.addAll);
 
       final outOfBandResp = await outOfBandReqFuture;
       expect(await outOfBandResp.stream.first, equals(testData.sublist(70, 90)));
 
-      // Trigger chunk 3 (bytes 60..200 arrive and download finishes)
+      // Trigger chunk 3 (bytes 60..200 arrive and download finishes; progress reaches 200 >= 80)
       slowChunk3Completer!.complete();
 
-      await inProgressDone;
-      expect(inProgressBytes, equals(testData.sublist(25, 50)));
+      await inProgressDone1;
+      await inProgressDone2;
+      expect(inProgressBytes1, equals(testData.sublist(10, 80)));
+      expect(inProgressBytes2, equals(testData.sublist(15)));
 
       while (!cacheFile.existsSync()) {
         await Future<void>.delayed(const Duration(milliseconds: 20));
@@ -207,9 +226,28 @@ void main() {
       expect(cacheFile.existsSync(), isTrue);
     });
 
+    test('error when server returns 500', () async {
+      final cacheFile = File('${tempDir.path}/500.mp3');
+      final source = LockCachingAudioSource(
+        Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${server.port}/500.mp3'),
+        cacheFile: cacheFile,
+      );
 
-
-
+      var errorCaught = false;
+      await runZonedGuarded(
+        () async {
+          try {
+            await source.request();
+          } catch (_) {
+            errorCaught = true;
+          }
+        },
+        (_, _) {
+          errorCaught = true;
+        },
+      );
+      expect(errorCaught, isTrue);
+    });
 
     test('abort during download deletes partial cache and propagates error', () async {
       final cacheFile = File('${tempDir.path}/abort.mp3');
@@ -219,16 +257,19 @@ void main() {
       );
 
       var errorSeen = false;
-      await runZonedGuarded(() async {
-        try {
-          final resp = await source.request(0, 50);
-          await resp.stream.drain<void>();
-        } catch (_) {
+      await runZonedGuarded(
+        () async {
+          try {
+            final resp = await source.request(0, 50);
+            await resp.stream.drain<void>();
+          } catch (_) {
+            errorSeen = true;
+          }
+        },
+        (_, _) {
           errorSeen = true;
-        }
-      }, (_, _) {
-        errorSeen = true;
-      });
+        },
+      );
 
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(errorSeen, isTrue);
@@ -243,15 +284,18 @@ void main() {
       );
 
       var errorCaught = false;
-      await runZonedGuarded(() async {
-        try {
-          await source.request();
-        } catch (e) {
+      await runZonedGuarded(
+        () async {
+          try {
+            await source.request();
+          } catch (e) {
+            errorCaught = true;
+          }
+        },
+        (e, st) {
           errorCaught = true;
-        }
-      }, (e, st) {
-        errorCaught = true;
-      });
+        },
+      );
       expect(errorCaught, isTrue);
     });
   });
