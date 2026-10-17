@@ -214,23 +214,16 @@ void main() {
       expect(clipMap['start'], equals(2000000));
       expect(clipMap['end'], equals(8000000));
 
-      final looping = LoopingAudioSourceMessage(
-        id: 'loop',
-        child: ProgressiveAudioSourceMessage(id: 'c2', uri: 'https://foo2.mp3'),
-        count: 5,
-      );
-      expect(looping.toMap()['count'], equals(5));
-
       final cat = ConcatenatingAudioSourceMessage(
         id: 'cat',
-        children: [dash, hls, silence, clipping, looping],
+        children: [dash, hls, silence, clipping],
         useLazyPreparation: true,
-        shuffleOrder: [0, 1, 2, 3, 4],
+        shuffleOrder: [0, 1, 2, 3],
       );
       final catMap = cat.toMap();
-      expect((catMap['children'] as List<dynamic>).length, equals(5));
+      expect((catMap['children'] as List<dynamic>).length, equals(4));
       expect(catMap['useLazyPreparation'], isTrue);
-      expect(catMap['shuffleOrder'], equals([0, 1, 2, 3, 4]));
+      expect(catMap['shuffleOrder'], equals([0, 1, 2, 3]));
     });
 
     test('Play, Pause, SetVolume, SetSpeed, SetPitch, SetSkipSilence', () {

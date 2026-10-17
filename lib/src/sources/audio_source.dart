@@ -25,11 +25,6 @@ abstract class AudioSource {
   /// The [tag] is for associating your app's own data with each audio source,
   /// e.g. title, cover art, a primary key for your DB. Such data can be
   /// conveniently retrieved from the tag while rendering the UI.
-  ///
-  /// When using audio_player_background, [tag] must be a MediaItem, a class
-  /// provided by that package. If you wish to have more control over the tag
-  /// for background audio purposes, consider using the plugin audio_service
-  /// instead of audio_player_background.
   static UriAudioSource uri(Uri uri, {Map<String, String>? headers, Object? tag}) {
     bool hasExtension(Uri uri, String extension) =>
         uri.path.toLowerCase().endsWith('.$extension') || uri.fragment.toLowerCase().endsWith('.$extension');
@@ -143,48 +138,26 @@ abstract class UriAudioSource extends IndexedAudioSource {
     }
   }
 
+  /// Extracts the asset into a cache file, which is what the platform player
+  /// plays.
   Future<Uri> _loadAsset(String assetPath) async {
-    if (kIsWeb) {
-      // Mapping from extensions to content types for the web player. If an
-      // extension is missing, please submit a pull request.
-      const mimeTypes = {
-        '.aac': 'audio/aac',
-        '.mp3': 'audio/mpeg',
-        '.ogg': 'audio/ogg',
-        '.opus': 'audio/opus',
-        '.wav': 'audio/wav',
-        '.weba': 'audio/webm',
-        '.mp4': 'audio/mp4',
-        '.m4a': 'audio/mp4',
-        '.aif': 'audio/x-aiff',
-        '.aifc': 'audio/x-aiff',
-        '.aiff': 'audio/x-aiff',
-        '.m3u': 'audio/x-mpegurl',
-      };
-      // Default to 'audio/mpeg'
-      final mimeType = mimeTypes[p.extension(assetPath).toLowerCase()] ?? 'audio/mpeg';
-      return _encodeDataUrl(base64.encode((await rootBundle.load(assetPath)).buffer.asUint8List()), mimeType);
-    } else {
-      // For non-web platforms, extract the asset into a cache file and pass
-      // that to the player.
-      final file = await _getCacheFile(assetPath);
-      if (!file.existsSync()) {
-        // Write to a unique temporary file and rename it into place, so that an
-        // interrupted write or a concurrent load never exposes a partial file.
-        final tempFile = File('${file.path}.${_generateUuidV4()}.tmp');
-        try {
-          await tempFile.create(recursive: true);
-          await tempFile.writeAsBytes((await rootBundle.load(assetPath)).buffer.asUint8List(), flush: true);
-          await tempFile.rename(file.path);
-        } catch (e) {
-          if (tempFile.existsSync()) {
-            await tempFile.delete();
-          }
-          rethrow;
+    final file = await _getCacheFile(assetPath);
+    if (!file.existsSync()) {
+      // Write to a unique temporary file and rename it into place, so that an
+      // interrupted write or a concurrent load never exposes a partial file.
+      final tempFile = File('${file.path}.${_generateUuidV4()}.tmp');
+      try {
+        await tempFile.create(recursive: true);
+        await tempFile.writeAsBytes((await rootBundle.load(assetPath)).buffer.asUint8List(), flush: true);
+        await tempFile.rename(file.path);
+      } catch (e) {
+        if (tempFile.existsSync()) {
+          await tempFile.delete();
         }
+        rethrow;
       }
-      return Uri.file(file.path);
     }
+    return Uri.file(file.path);
   }
 
   /// Gets the cache file for an asset with the proper extension
@@ -197,11 +170,10 @@ abstract class UriAudioSource extends IndexedAudioSource {
 ///
 /// * file: loads from a local file (provided you give your app permission to
 /// access that file).
-/// * asset: loads from a Flutter asset (not supported on Web).
+/// * asset: loads from a Flutter asset.
 /// * http(s): loads from an HTTP(S) resource.
 ///
-/// On platforms except for the web, the supplied [headers] will be passed with
-/// the HTTP(S) request.
+/// The supplied [headers] are sent with the HTTP(S) request.
 class ProgressiveAudioSource extends UriAudioSource {
   new(super.uri, {super.headers, super.tag, super.duration, this.options});
 
@@ -222,11 +194,11 @@ class ProgressiveAudioSource extends UriAudioSource {
 ///
 /// * file: loads from a local file (provided you give your app permission to
 /// access that file).
-/// * asset: loads from a Flutter asset (not supported on Web).
+/// * asset: loads from a Flutter asset.
 /// * http(s): loads from an HTTP(S) resource.
 ///
-/// On platforms except for the web, the supplied [headers] will be passed with
-/// the HTTP(S) requests made by the platform player.
+/// The supplied [headers] are sent with the HTTP(S) requests made by the
+/// platform player.
 class DashAudioSource extends UriAudioSource {
   new(super.uri, {super.headers, super.tag, super.duration});
 
@@ -240,11 +212,11 @@ class DashAudioSource extends UriAudioSource {
 ///
 /// * file: loads from a local file (provided you give your app permission to
 /// access that file).
-/// * asset: loads from a Flutter asset (not supported on Web).
+/// * asset: loads from a Flutter asset.
 /// * http(s): loads from an HTTP(S) resource.
 ///
-/// On platforms except for the web, the supplied [headers] will be passed with
-/// the HTTP(S) requests made by the platform player.
+/// The supplied [headers] are sent with the HTTP(S) requests made by the
+/// platform player.
 class HlsAudioSource extends UriAudioSource {
   new(super.uri, {super.headers, super.tag, super.duration});
 
@@ -268,5 +240,3 @@ class SilenceAudioSource extends IndexedAudioSource {
   @override
   AudioSourceMessage _toMessage() => SilenceAudioSourceMessage(id: _id, duration: duration);
 }
-
-Uri _encodeDataUrl(String base64Data, String mimeType) => Uri.parse('data:$mimeType;base64,$base64Data');

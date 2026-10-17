@@ -12,7 +12,7 @@ published as `uz.plugin.audio_player`.
 - Android (Media3/ExoPlayer): `android/src/main/kotlin/uz/plugin/audio_player/`.
 - iOS + macOS (AVPlayer): one shared Swift set in `darwin/audio_player/Sources/audio_player/`
   (`#if os(iOS)` / `#elseif os(macOS)`). A Swift change hits both platforms.
-- Tests: `test/` (mocktail). Demo app: `example/`.
+- Tests: `test/` (mocktail); native players at runtime: `example/integration_test/`. Demo app: `example/`.
 - Channels: methods `uz.plugin.audio_player.methods`, events `uz.plugin.audio_player.events.<playerId>`.
   Dart, Swift and Kotlin must agree on names and message shape.
 
@@ -22,7 +22,9 @@ published as `uz.plugin.audio_player`.
 flutter pub get && flutter analyze && flutter test
 dart format --set-exit-if-changed .                          # width 120
 cd example && flutter build ios --simulator --no-codesign    # compiles Swift
+cd example && flutter build macos --debug                    # compiles Swift for macOS
 cd example && flutter build apk --debug                      # compiles Kotlin
+cd example && flutter test integration_test -d <device>      # runs the native players (emulator, simulator, macos)
 ```
 
 ## Rules
@@ -33,8 +35,11 @@ cd example && flutter build apk --debug                      # compiles Kotlin
 - Don't edit `build/`, `.dart_tool/`, `example/build/`, `*.g.dart`. Match surrounding style; no new dependencies
   without reason.
 - Never `git commit` or push; leave changes in the working tree.
-- Before saying a change works: run analyze + test, and build the example for touched native platforms. If something
-  couldn't be run (no device/simulator), say so.
+- Before saying a change works: run analyze + test, and build the example for touched native platforms. For native
+  behavior changes, also run the integration tests on each touched platform. If something couldn't be run (no
+  device/simulator), say so.
+- Unit tests run on the development machine: platform-specific code checks `_isAndroid()`, which tests override with
+  `AudioPlayerTestHooks.testTargetPlatform`. Don't add test-only branches to `lib/`.
 
 ## Native lifecycle
 

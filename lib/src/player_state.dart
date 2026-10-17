@@ -73,14 +73,12 @@ class PlaybackEvent {
 
   /// The error code of the most recent playback error, or `null` if none.
   ///
-  /// Supported on Android, iOS and web. For other platforms, check the
-  /// documentation of the respective platform implementation.
+  /// Supported on Android, iOS and macOS.
   final int? errorCode;
 
   /// The error message of the most recent playback error, or `null` if none.
   ///
-  /// Supported on Android, iOS and web. For other platforms, check the
-  /// documentation of the respective platform implementation.
+  /// Supported on Android, iOS and macOS.
   final String? errorMessage;
 
   /// Returns a copy of this event with given properties replaced.

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
@@ -1079,6 +1078,10 @@ class AudioPlayer {
   ///
   /// This method activates the audio session before playback, and will do
   /// nothing if activation of the audio session fails for any reason.
+  ///
+  /// If the platform player cannot be started, [playing] reverts to `false`,
+  /// the error is reported on [errorStream] and the returned [Future]
+  /// completes with that error.
   Future<void> play() async {
     if (_disposed) {
       return;
@@ -1096,16 +1099,32 @@ class AudioPlayer {
         playbackEvent: playbackEvent.copyWith(updatePosition: position, updateTime: DateTime.now()),
       ),
     );
-    final playCompleter = Completer<dynamic>();
+    final playCompleter = Completer<void>();
     final audioSession = await AudioSession.instance;
     if (!_handleAudioSessionActivation || await audioSession.setActive(true)) {
       if (!playing) {
         return;
       }
+      // The platform answers the play request when playback is paused or
+      // completes, but the request may never be sent: there may be nothing to
+      // play yet, or the activation that would send it may be superseded. So
+      // also finish once playing stops, playback completes or the player is
+      // disposed.
+      unawaited(
+        _playerEventSubject.stream
+            .skip(1)
+            .firstWhere((event) => !event.playing || event.playbackEvent.processingState == ProcessingState.completed)
+            .then<void>((_) {}, onError: (Object _) {})
+            .whenComplete(() {
+              if (!playCompleter.isCompleted) {
+                playCompleter.complete();
+              }
+            }),
+      );
       // TODO(SunnatilloShavkatov): rewrite this to more cleanly handle simultaneous load/play
       // requests which each may result in platform play requests.
-      final requireActive = _playlist.children.isNotEmpty;
-      if (requireActive) {
+      // If there is nothing to play yet, a later load starts playback.
+      if (_playlist.children.isNotEmpty) {
         if (_active) {
           // If the native platform is already active, send it a play request.
           // NOTE: If a load() request happens simultaneously, this may result
@@ -1114,17 +1133,10 @@ class AudioPlayer {
           unawaited(_sendPlayRequest(await _platform, playCompleter));
         } else {
           // If the native platform wasn't already active, activating it will
-          // implicitly restore the playing state and send a play request.
+          // implicitly restore the playing state and send a play request. If
+          // the activation fails, it completes playCompleter with the error.
           unawaited(_setPlatformActive(true, playCompleter: playCompleter)?.catchError((_) => null));
         }
-      } else {
-        // There is nothing to play yet. A later load starts playback, so this
-        // completes once playing is turned off (or the player is disposed).
-        unawaited(
-          _playerEventSubject.stream
-              .firstWhere((event) => !event.playing)
-              .then<void>((_) => playCompleter.complete(), onError: (Object _) => playCompleter.complete()),
-        );
       }
     } else {
       // Revert if we fail to activate the audio session.
@@ -1163,9 +1175,13 @@ class AudioPlayer {
         return; // defensive
       }
       await platform.play(PlayRequest());
-      playCompleter?.complete();
+      if (playCompleter != null && !playCompleter.isCompleted) {
+        playCompleter.complete();
+      }
     } catch (e, stackTrace) {
-      playCompleter?.completeError(e, stackTrace);
+      if (playCompleter != null && !playCompleter.isCompleted) {
+        playCompleter.completeError(e, stackTrace);
+      }
     }
   }
 
@@ -1285,8 +1301,7 @@ class AudioPlayer {
     }
   }
 
-  /// Sets the [LoopMode]. Looping will be gapless on Android, iOS and macOS. On
-  /// web, there will be a slight gap at the loop point.
+  /// Sets the [LoopMode]. Looping is gapless on Android, iOS and macOS.
   Future<void> setLoopMode(LoopMode mode) async {
     if (_disposed) {
       return;
@@ -1418,7 +1433,7 @@ class AudioPlayer {
     if (_disposed) {
       return;
     }
-    if (!_isAndroid() && !_isUnitTest()) {
+    if (!_isAndroid()) {
       return;
     }
     if (audioAttributes == _androidAudioAttributes) {
@@ -1432,7 +1447,7 @@ class AudioPlayer {
     AudioPlayerInstancePlatform platform,
     AndroidAudioAttributes audioAttributes,
   ) async {
-    if (!_isAndroid() && !_isUnitTest()) {
+    if (!_isAndroid()) {
       return;
     }
     await platform.setAndroidAudioAttributes(
@@ -1638,7 +1653,7 @@ class AudioPlayer {
       }, onError: _reportPlaybackEventError);
     }
 
-    Future<AudioPlayerInstancePlatform> setPlatform() async {
+    Future<AudioPlayerInstancePlatform> setUpPlatform() async {
       // We need to cancel before calling _disposePlatform in order to prevent a
       // MissingPluginException. This also means there will potentially be
       // unconsumed events which will unfortunately appear when spinning up a
@@ -1672,12 +1687,9 @@ class AudioPlayer {
                 InitRequest(
                   id: _id = _generateId(),
                   audioLoadConfiguration: _audioLoadConfiguration?._toMessage(),
-                  androidAudioEffects: (_isAndroid() || _isUnitTest())
-                      ? _audioPipeline.androidAudioEffects.map((audioEffect) => audioEffect._toMessage()).toList()
-                      : [],
-                  darwinAudioEffects: (_isDarwin() || _isUnitTest())
-                      ? _audioPipeline.darwinAudioEffects.map((audioEffect) => audioEffect._toMessage()).toList()
-                      : [],
+                  androidAudioEffects: _audioPipeline._platformAudioEffects
+                      .map((audioEffect) => audioEffect._toMessage())
+                      .toList(),
                   androidAudioOffloadPreferences: _androidAudioOffloadPreferences?._toMessage(),
                   useLazyPreparation: _playlist.useLazyPreparation,
                 ),
@@ -1709,7 +1721,7 @@ class AudioPlayer {
         final playing = this.playing;
         // To avoid a glitch in ExoPlayer, ensure that any requested audio
         // attributes are set before loading the audio source.
-        if (_isAndroid() || _isUnitTest()) {
+        if (_isAndroid()) {
           if (_androidApplyAudioAttributes) {
             final audioSession = await AudioSession.instance;
             if (checkInterruption()) {
@@ -1779,7 +1791,7 @@ class AudioPlayer {
             return inactiveResult(platform);
           }
         }
-        for (final audioEffect in _audioPipeline._audioEffects) {
+        for (final audioEffect in _audioPipeline._platformAudioEffects) {
           await audioEffect._activate(platform);
           if (checkInterruption()) {
             return inactiveResult(platform);
@@ -1801,6 +1813,54 @@ class AudioPlayer {
       }
 
       return platform;
+    }
+
+    // The native platform could not be created or configured. Rather than
+    // leave _platform failing with this error forever (and play() waiting),
+    // report the error, fall back to the idle platform and fail only this
+    // activation.
+    Future<AudioPlayerInstancePlatform> activationFailed(Object e, StackTrace stackTrace) async {
+      final error = e is PlatformException ? _convertException(e) : e;
+      if (playCompleter != null && !playCompleter.isCompleted) {
+        playCompleter.completeError(error, stackTrace);
+      }
+      if (_platformValue == null || _platformValue is _IdleAudioPlayer) {
+        // init failed, so there is no native player to dispose of.
+        _nativePlatform = null;
+      }
+      _playerEventSubject.add(
+        playerEvent.copyWith(
+          playing: false,
+          playbackEvent: playbackEvent.copyWith(
+            processingState: ProcessingState.idle,
+            updatePosition: this.position,
+            updateTime: DateTime.now(),
+            errorCode: error is PlayerException ? error.code : _unknownErrorCode,
+            errorMessage: error is PlayerException ? error.message : '$error',
+          ),
+        ),
+      );
+      final idleActivation = _setPlatformActive(false);
+      if (idleActivation == null) {
+        Error.throwWithStackTrace(error, stackTrace);
+      }
+      unawaited(idleActivation.catchError((_) => null));
+      final idlePlatform = await _platform;
+      // Complete only now: the caller starts listening as soon as this
+      // function returns, so the error is never reported as unhandled.
+      durationCompleter.completeError(error, stackTrace);
+      return idlePlatform;
+    }
+
+    Future<AudioPlayerInstancePlatform> setPlatform() async {
+      try {
+        return await setUpPlatform();
+      } catch (e, stackTrace) {
+        if (!active || wasInterrupted()) {
+          rethrow;
+        }
+        return activationFailed(e, stackTrace);
+      }
     }
 
     _platform = setPlatform();
@@ -1851,16 +1911,15 @@ class AudioPlayer {
   /// app's assets have changed to force assets to be re-fetched from the asset
   /// bundle.
   static Future<void> clearAssetCache() async {
-    if (kIsWeb) {
-      return;
-    }
     await for (final file in (await _getCacheDir()).list()) {
       await file.delete(recursive: true);
     }
   }
 
+  /// The [PlayerException.code] of an error that has no numeric code.
+  static const _unknownErrorCode = 9999999;
+
   Exception _convertException(PlatformException e) {
-    const kUnknownErrorCode = 9999999;
     const kInterruptedErrorCode = 10000000;
     final details = (e.details as Map<dynamic, dynamic>?)?.cast<String, dynamic>();
     final index = details?['index'] as int? ?? currentIndex;
@@ -1869,7 +1928,7 @@ class AudioPlayer {
       if (e.code == 'abort') {
         return PlayerInterruptedException(e.message);
       } else {
-        return PlayerException(kUnknownErrorCode, e.message, index);
+        return PlayerException(_unknownErrorCode, e.message, index);
       }
     } else if (code == kInterruptedErrorCode) {
       return PlayerInterruptedException(e.message);

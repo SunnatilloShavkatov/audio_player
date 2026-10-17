@@ -307,10 +307,6 @@ void main() {
       expect(exNumeric, isA<PlayerException>());
       expect((exNumeric as PlayerException).code, equals(404));
 
-      // testEncodeDataUrl
-      final dataUri = AudioPlayerTestHooks.testEncodeDataUrl('aGVsbG8=', 'audio/mpeg');
-      expect(dataUri.toString(), equals('data:audio/mpeg;base64,aGVsbG8='));
-
       await player.dispose();
     });
 

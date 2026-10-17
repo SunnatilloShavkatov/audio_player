@@ -15,11 +15,12 @@ String _generateUuidV4() {
       '${hex.substring(16, 20)}-${hex.substring(20)}';
 }
 
-bool _isAndroid() => !kIsWeb && Platform.isAndroid;
+/// The platform to behave as instead of the host. Only this package's own
+/// tests, which run on the development machine, set it (through
+/// [AudioPlayerTestHooks.testTargetPlatform]).
+TargetPlatform? _testTargetPlatform;
 
-bool _isDarwin() => !kIsWeb && (Platform.isIOS || Platform.isMacOS);
-
-bool _isUnitTest() => !kIsWeb && Platform.environment['FLUTTER_TEST'] == 'true';
+bool _isAndroid() => _testTargetPlatform == null ? Platform.isAndroid : _testTargetPlatform == TargetPlatform.android;
 
 /// Backwards compatible extensions on rxdart's ValueStream
 extension _ValueStreamExtension<T> on ValueStream<T> {

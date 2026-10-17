@@ -471,11 +471,6 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
                 start: (data["start"] as? NSNumber)?.int64Value,
                 end: (data["end"] as? NSNumber)?.int64Value
             )
-        case "looping":
-            guard let childData = data["child"] as? [String: Any] else { throw PlayerError.invalidSource }
-            let count = (data["count"] as? NSNumber)?.intValue ?? 0
-            let childSources = try (0..<max(count, 0)).map { _ in try decodeAudioSource(childData) }
-            return LoopingAudioSource(id: id, audioSources: childSources)
         default:
             throw PlayerError.unknownSourceType
         }

@@ -18,9 +18,14 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  integration_test:
+    sdk: flutter
   test: any
   analysis_lints: ^1.1.0
 
 flutter:
   uses-material-design: true
+  assets:
+    # A 3 second tone that the integration tests play.
+    - assets/audio/
 

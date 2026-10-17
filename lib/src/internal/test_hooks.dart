@@ -53,7 +53,8 @@ extension AudioPlayerTestHooks on AudioPlayer {
     } catch (_) {}
   }
 
-  /// Encodes [base64Data] as a data URL of [mimeType].
+  /// Makes the plugin behave as on [platform] instead of the host the tests
+  /// run on, or as on the host when `null`.
   @visibleForTesting
-  static Uri testEncodeDataUrl(String base64Data, String mimeType) => _encodeDataUrl(base64Data, mimeType);
+  static set testTargetPlatform(TargetPlatform? platform) => _testTargetPlatform = platform;
 }

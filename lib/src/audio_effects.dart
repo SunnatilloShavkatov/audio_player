@@ -1,25 +1,23 @@
 part of 'audio_player.dart';
 
 /// The pipeline of audio effects to be applied to an [AudioPlayer].
+///
+/// Audio effects are currently supported on Android only. On iOS and macOS the
+/// effects keep their settings but do not change the audio.
 class AudioPipeline {
-  new({List<AndroidAudioEffect>? androidAudioEffects, List<DarwinAudioEffect>? darwinAudioEffects})
+  new({List<AndroidAudioEffect>? androidAudioEffects})
     : assert(
         androidAudioEffects == null || androidAudioEffects.toSet().length == androidAudioEffects.length,
         'androidAudioEffects must not contain duplicates.',
       ),
-      assert(
-        darwinAudioEffects == null || darwinAudioEffects.toSet().length == darwinAudioEffects.length,
-        'darwinAudioEffects must not contain duplicates.',
-      ),
-      androidAudioEffects = androidAudioEffects ?? const [],
-      darwinAudioEffects = darwinAudioEffects ?? const [];
+      androidAudioEffects = androidAudioEffects ?? const [];
   final List<AndroidAudioEffect> androidAudioEffects;
-  final List<DarwinAudioEffect> darwinAudioEffects;
 
-  List<AudioEffect> get _audioEffects => <AudioEffect>[...androidAudioEffects, ...darwinAudioEffects];
+  /// The effects that the current platform applies.
+  List<AudioEffect> get _platformAudioEffects => _isAndroid() ? androidAudioEffects : const [];
 
   void _setup(AudioPlayer player) {
-    for (final effect in _audioEffects) {
+    for (final effect in androidAudioEffects) {
       effect._setup(player);
     }
   }
@@ -73,11 +71,12 @@ abstract class AudioEffect {
   AudioEffectMessage _toMessage();
 }
 
-/// An [AudioEffect] that supports Android.
-mixin AndroidAudioEffect on AudioEffect;
-
-/// An [AudioEffect] that supports iOS and macOS.
-mixin DarwinAudioEffect on AudioEffect;
+/// An [AudioEffect] that supports Android. On other platforms its settings are
+/// kept but never sent to the platform player.
+mixin AndroidAudioEffect on AudioEffect {
+  @override
+  bool get _active => _isAndroid() && super._active;
+}
 
 /// An Android [AudioEffect] that boosts the volume of the audio signal to a
 /// target gain, which defaults to zero.

@@ -5,12 +5,11 @@ class PlayerException implements Exception {
   new(this.code, this.message, this.index);
 
   /// On iOS and macOS, maps to `NSError.code`. On Android, maps to
-  /// `ExoPlaybackException.type`. On Web, maps to `MediaError.code`.
+  /// `ExoPlaybackException.type`.
   final int code;
 
   /// On iOS and macOS, maps to `NSError.localizedDescription`. On Android,
-  /// maps to `ExoPlaybackException.getMessage()`. On Web, a generic message
-  /// is provided.
+  /// maps to `ExoPlaybackException.getMessage()`.
   final String? message;
 
   /// The index of the audio source associated with this error.

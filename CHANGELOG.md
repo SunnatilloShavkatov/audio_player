@@ -14,6 +14,23 @@
   that `package:audio_player/audio_player.dart` does not export.
 * **Breaking:** `setClip` throws a `StateError` instead of a plain `Exception` when the playlist does not contain
   exactly one `UriAudioSource`. Code that catches `Exception` around `setClip` must catch `StateError` instead.
+* **Breaking:** removed `DarwinAudioEffect` and `AudioPipeline.darwinAudioEffects`. No effect implemented them and
+  the iOS/macOS player never applied them.
+* Fix: `play()` no longer waits forever when the platform player cannot be created or configured. It completes with
+  the error (a `PlayerException` for platform errors), `playing` reverts to `false`, the error is reported on
+  `errorStream`, and the player stays usable instead of failing every later call with the same error. `load()` and
+  the `set...` loading methods throw the error the same way.
+* Fix: `play()` also completes once playback is paused or stopped, or completes, when the activation that would have
+  sent its play request was superseded (for example by `stop()`).
+* Fix: on iOS and macOS, an `AudioPipeline` with Android audio effects made loading fail with a
+  `MissingPluginException`. Android effects now keep their settings there without reaching the platform player.
+* Fix: on Android, `shuffle()` now updates the native shuffle order, so playback advances in the new order.
+* Android: the playlist uses ExoPlayer's own playlist API and `ClippingMediaSource.Builder` instead of the deprecated
+  `ConcatenatingMediaSource` and `ClippingMediaSource` constructor, and the file-wide deprecation suppression is gone.
+* Removed the unused looping source from the Android, iOS/macOS and platform interface code, and the web-only
+  data URL path for assets.
+* Added integration tests (`example/integration_test`) that run the native players on Android, iOS and macOS, and CI
+  jobs that build the macOS example and run the integration tests on an Android emulator.
 * `setVolume` and `setSpeed` revert `volume` and `speed` to their previous values if the platform call fails, like
   `setPitch`.
 * Errors on the platform's playback event stream other than the native player errors (which `errorStream` already

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math';
 
 import 'package:audio_player/audio_player.dart';
+import 'package:audio_player/src/audio_player.dart' show AudioPlayerTestHooks;
 import 'package:audio_player/src/platform_interface/audio_player_platform_interface.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/services.dart';
@@ -40,6 +41,11 @@ void runTests() {
     final sorted = List.of(indices)..sort();
     expect(sorted, equals(List.generate(indices.length, (i) => i)));
   }
+
+  // These tests run on the development machine; behave as on Android, where
+  // all of the player's features are available.
+  setUpAll(() => AudioPlayerTestHooks.testTargetPlatform = TargetPlatform.android);
+  tearDownAll(() => AudioPlayerTestHooks.testTargetPlatform = null);
 
   setUp(() {
     _ambiguate(TestDefaultBinaryMessengerBinding.instance)!.defaultBinaryMessenger
@@ -1192,6 +1198,25 @@ void runTests() {
     }
   });
 
+  test('Android audio effects are inert on iOS', () async {
+    AudioPlayerTestHooks.testTargetPlatform = TargetPlatform.iOS;
+    addTearDown(() => AudioPlayerTestHooks.testTargetPlatform = TargetPlatform.android);
+    final equalizer = AndroidEqualizer();
+    final loudnessEnhancer = AndroidLoudnessEnhancer();
+    final player = AudioPlayer(audioPipeline: AudioPipeline(androidAudioEffects: [equalizer, loudnessEnhancer]));
+    expect(await player.setUrl('https://foo.foo/foo.mp3'), equals(audioSourceDuration));
+    await equalizer.setEnabled(enabled: true);
+    await loudnessEnhancer.setTargetGain(1.5);
+    expect(equalizer.enabled, isTrue);
+    expect(loudnessEnhancer.targetGain, equals(1.5));
+    final platform = mock.mostRecentPlayer!;
+    expect(platform.initRequest.androidAudioEffects, isEmpty);
+    expect(platform.audioEffectCalls, isEmpty);
+    await player.setAndroidAudioAttributes(const AndroidAudioAttributes(usage: AndroidAudioUsage.alarm));
+    expect(platform.audioEffectCalls, isEmpty);
+    await player.dispose();
+  });
+
   test('asyncMessages', () async {
     final player = AudioPlayer();
     await player.setUrl('https://foo.foo/foo.mp3');
@@ -1221,18 +1246,100 @@ void runTests() {
     expect(player.shuffleModeEnabled, equals(true));
     await player.dispose();
   });
+
+  group('activation failure', () {
+    tearDown(() {
+      mock
+        ..initError = null
+        ..onSetVolume = null;
+    });
+
+    test('play() fails, reports the error and leaves the player usable', () async {
+      mock.onSetVolume = () async => throw PlatformException(code: 'error', message: 'setVolume failed');
+      final player = AudioPlayer();
+      final errors = <PlayerException>[];
+      final subscription = player.errorStream.listen(errors.add);
+      // The idle platform accepts the volume; the native one rejects it.
+      await player.setVolume(0.5);
+      await player.setUrl('https://foo.foo/foo.mp3', preload: false);
+      await expectLater(
+        player.play().timeout(const Duration(seconds: 1)),
+        throwsA(isA<PlayerException>().having((e) => e.message, 'message', 'setVolume failed')),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(player.playing, isFalse);
+      expect(player.processingState, equals(ProcessingState.idle));
+      expect(errors.single.message, equals('setVolume failed'));
+
+      // No stale error is left behind, and the next activation works.
+      mock.onSetVolume = null;
+      await player.pause();
+      await player.seek(Duration.zero);
+      expect(await player.load(), equals(audioSourceDuration));
+      final playFuture = player.play();
+      await player.pause();
+      await playFuture.timeout(const Duration(seconds: 1));
+      await subscription.cancel();
+      await player.dispose();
+    });
+
+    test('load() fails when the platform player cannot be created', () async {
+      mock.initError = PlatformException(code: 'error', message: 'init failed');
+      final player = AudioPlayer();
+      await expectLater(
+        player.setUrl('https://foo.foo/foo.mp3'),
+        throwsA(isA<PlayerException>().having((e) => e.message, 'message', 'init failed')),
+      );
+      expect(player.processingState, equals(ProcessingState.idle));
+      expect(await player.setUrl('https://foo.foo/foo.mp3'), equals(audioSourceDuration));
+      await player.dispose();
+    });
+
+    test('play() completes on pause when its activation is superseded', () async {
+      final setVolumeReached = Completer<void>();
+      final releaseSetVolume = Completer<void>();
+      mock.onSetVolume = () {
+        if (!setVolumeReached.isCompleted) {
+          setVolumeReached.complete();
+        }
+        return releaseSetVolume.future;
+      };
+      final player = AudioPlayer();
+      await player.setVolume(0.5);
+      await player.setUrl('https://foo.foo/foo.mp3', preload: false);
+      final playFuture = player.play();
+      await setVolumeReached.future;
+      // Stopping supersedes the activation before it sends the play request.
+      await player.stop();
+      releaseSetVolume.complete();
+      await playFuture.timeout(const Duration(seconds: 1));
+      expect(player.playing, isFalse);
+      await player.dispose();
+    });
+  });
 }
 
 class MockAudioPlayerPlatform extends Mock with MockPlatformInterfaceMixin implements AudioPlayerPlatform {
   MockAudioPlayer? mostRecentPlayer;
   final _players = <String, MockAudioPlayer>{};
 
+  /// When set, the next [init] call fails with this error.
+  Exception? initError;
+
+  /// Called by [MockAudioPlayer.setVolume] of the players created from now on.
+  Future<void> Function()? onSetVolume;
+
   @override
   Future<AudioPlayerInstancePlatform> init(InitRequest request) async {
+    final error = initError;
+    if (error != null) {
+      initError = null;
+      throw error;
+    }
     if (_players.containsKey(request.id)) {
       throw PlatformException(code: 'error', message: 'Platform player ${request.id} already exists');
     }
-    final player = MockAudioPlayer(request);
+    final player = MockAudioPlayer(request, onSetVolume: onSetVolume);
     _players[request.id] = player;
     mostRecentPlayer = player;
     return player;
@@ -1275,7 +1382,14 @@ final icyMetadataMessage = IcyMetadataMessage(
 );
 
 class MockAudioPlayer extends AudioPlayerInstancePlatform {
-  new(InitRequest request) : audioLoadConfiguration = request.audioLoadConfiguration, super(request.id);
+  new(this.initRequest, {this.onSetVolume})
+    : audioLoadConfiguration = initRequest.audioLoadConfiguration,
+      super(initRequest.id);
+  final InitRequest initRequest;
+  final Future<void> Function()? onSetVolume;
+
+  /// The names of the audio effect and Android-only methods called so far.
+  final audioEffectCalls = <String>[];
   final eventController = StreamController<PlaybackEventMessage>();
   final dataMessageController = StreamController<PlayerDataMessage>();
   final AudioLoadConfigurationMessage? audioLoadConfiguration;
@@ -1434,8 +1548,10 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
   }
 
   @override
-  Future<SetAndroidAudioAttributesResponse> setAndroidAudioAttributes(SetAndroidAudioAttributesRequest request) async =>
-      SetAndroidAudioAttributesResponse();
+  Future<SetAndroidAudioAttributesResponse> setAndroidAudioAttributes(SetAndroidAudioAttributesRequest request) async {
+    audioEffectCalls.add('setAndroidAudioAttributes');
+    return SetAndroidAudioAttributesResponse();
+  }
 
   @override
   Future<SetAutomaticallyWaitsToMinimizeStallingResponse> setAutomaticallyWaitsToMinimizeStalling(
@@ -1468,7 +1584,10 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
   Future<SetSkipSilenceResponse> setSkipSilence(SetSkipSilenceRequest request) async => SetSkipSilenceResponse();
 
   @override
-  Future<SetVolumeResponse> setVolume(SetVolumeRequest request) async => SetVolumeResponse();
+  Future<SetVolumeResponse> setVolume(SetVolumeRequest request) async {
+    await onSetVolume?.call();
+    return SetVolumeResponse();
+  }
 
   @override
   Future<DisposeResponse> dispose(DisposeRequest request) async {
@@ -1559,18 +1678,28 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
       SetAllowsExternalPlaybackResponse();
 
   @override
-  Future<AudioEffectSetEnabledResponse> audioEffectSetEnabled(AudioEffectSetEnabledRequest request) async =>
-      AudioEffectSetEnabledResponse();
+  Future<AudioEffectSetEnabledResponse> audioEffectSetEnabled(AudioEffectSetEnabledRequest request) async {
+    audioEffectCalls.add('audioEffectSetEnabled');
+    return AudioEffectSetEnabledResponse();
+  }
 
   @override
   Future<AndroidLoudnessEnhancerSetTargetGainResponse> androidLoudnessEnhancerSetTargetGain(
     AndroidLoudnessEnhancerSetTargetGainRequest request,
-  ) async => AndroidLoudnessEnhancerSetTargetGainResponse();
+  ) async {
+    audioEffectCalls.add('androidLoudnessEnhancerSetTargetGain');
+    return AndroidLoudnessEnhancerSetTargetGainResponse();
+  }
 
   @override
   Future<AndroidEqualizerGetParametersResponse> androidEqualizerGetParameters(
     AndroidEqualizerGetParametersRequest request,
-  ) async => AndroidEqualizerGetParametersResponse(
+  ) async {
+    audioEffectCalls.add('androidEqualizerGetParameters');
+    return androidEqualizerParameters;
+  }
+
+  static final androidEqualizerParameters = AndroidEqualizerGetParametersResponse(
     parameters: AndroidEqualizerParametersMessage(
       minDecibels: 0,
       maxDecibels: 10,

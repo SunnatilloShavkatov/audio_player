@@ -1,8 +1,8 @@
 part of '../audio_player.dart';
 
 /// The root playlist of an [AudioPlayer]: a concatenation of audio sources to
-/// be played in succession. Playback between items will be gapless on Android,
-/// iOS and macOS, while there will be a slight gap on Web.
+/// be played in succession. Playback between items is gapless on Android, iOS
+/// and macOS.
 ///
 /// Audio sources can be dynamically added, removed and reordered while the
 /// audio is playing via the playlist methods on [AudioPlayer].

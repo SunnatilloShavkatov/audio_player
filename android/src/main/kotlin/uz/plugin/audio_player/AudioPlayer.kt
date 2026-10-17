@@ -1,5 +1,3 @@
-@file:Suppress("DEPRECATION")
-
 package uz.plugin.audio_player
 
 import android.content.Context
@@ -38,7 +36,6 @@ import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.metadata.MetadataOutput
 import androidx.media3.exoplayer.source.ClippingMediaSource
-import androidx.media3.exoplayer.source.ConcatenatingMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.ShuffleOrder
@@ -446,7 +443,8 @@ class AudioPlayer(
                     result.success(emptyMap<String, Any?>())
                 }
                 "setShuffleOrder" -> {
-                    setShuffleOrder(call.argument<Any>("audioSource"))
+                    val playlist = call.argument<Map<*, *>>("audioSource")!!
+                    player.setShuffleOrder(decodeShuffleOrder(mapGet(playlist, "shuffleOrder")!!))
                     result.success(emptyMap<String, Any?>())
                 }
                 "setAutomaticallyWaitsToMinimizeStalling",
@@ -457,53 +455,24 @@ class AudioPlayer(
                     val index = call.argument<Int>("index")
                     seek(if (position == null) C.TIME_UNSET else position / 1000, index, result)
                 }
+                // The playlist is always the root one, which maps onto ExoPlayer's
+                // own playlist.
                 "concatenatingInsertAll" -> {
                     val index = call.argument<Int>("index")!!
                     val children = getAudioSources(call.argument<Any>("children"))
-                    val shuffleOrder = decodeShuffleOrder(call.argument<List<Int>>("shuffleOrder")!!)
-                    if (call.argument<String>("id")!!.isEmpty()) {
-                        player.addMediaSources(index, children)
-                        player.setShuffleOrder(shuffleOrder)
-                        result.success(emptyMap<String, Any?>())
-                    } else {
-                        val concatenating = concatenating(call.argument<String>("id"))
-                        concatenating.addMediaSources(index, children, handler) {
-                            result.success(emptyMap<String, Any?>())
-                        }
-                        concatenating.setShuffleOrder(shuffleOrder)
-                    }
+                    player.addMediaSources(index, children)
+                    player.setShuffleOrder(decodeShuffleOrder(call.argument<List<Int>>("shuffleOrder")!!))
+                    result.success(emptyMap<String, Any?>())
                 }
                 "concatenatingRemoveRange" -> {
-                    val startIndex = call.argument<Int>("startIndex")!!
-                    val endIndex = call.argument<Int>("endIndex")!!
-                    val shuffleOrder = decodeShuffleOrder(call.argument<List<Int>>("shuffleOrder")!!)
-                    if (call.argument<String>("id")!!.isEmpty()) {
-                        player.removeMediaItems(startIndex, endIndex)
-                        player.setShuffleOrder(shuffleOrder)
-                        result.success(emptyMap<String, Any?>())
-                    } else {
-                        val concatenating = concatenating(call.argument<String>("id"))
-                        concatenating.removeMediaSourceRange(startIndex, endIndex, handler) {
-                            result.success(emptyMap<String, Any?>())
-                        }
-                        concatenating.setShuffleOrder(shuffleOrder)
-                    }
+                    player.removeMediaItems(call.argument<Int>("startIndex")!!, call.argument<Int>("endIndex")!!)
+                    player.setShuffleOrder(decodeShuffleOrder(call.argument<List<Int>>("shuffleOrder")!!))
+                    result.success(emptyMap<String, Any?>())
                 }
                 "concatenatingMove" -> {
-                    val currentIndex = call.argument<Int>("currentIndex")!!
-                    val newIndex = call.argument<Int>("newIndex")!!
-                    val shuffleOrder = decodeShuffleOrder(call.argument<List<Int>>("shuffleOrder")!!)
-                    if (call.argument<String>("id")!!.isEmpty()) {
-                        player.moveMediaItem(currentIndex, newIndex)
-                        player.setShuffleOrder(shuffleOrder)
-                        result.success(emptyMap<String, Any?>())
-                    } else {
-                        val concatenating = concatenating(call.argument<String>("id"))
-                        concatenating.moveMediaSource(currentIndex, newIndex, handler) {
-                            result.success(emptyMap<String, Any?>())
-                        }
-                        concatenating.setShuffleOrder(shuffleOrder)
-                    }
+                    player.moveMediaItem(call.argument<Int>("currentIndex")!!, call.argument<Int>("newIndex")!!)
+                    player.setShuffleOrder(decodeShuffleOrder(call.argument<List<Int>>("shuffleOrder")!!))
+                    result.success(emptyMap<String, Any?>())
                 }
                 "setAndroidAudioAttributes" -> {
                     setAudioAttributes(
@@ -542,26 +511,6 @@ class AudioPlayer(
 
     private fun decodeShuffleOrder(indexList: List<Int>): ShuffleOrder =
         DefaultShuffleOrder(indexList.toIntArray(), random.nextLong())
-
-    private fun concatenating(id: String?): ConcatenatingMediaSource =
-        mediaSources[id] as ConcatenatingMediaSource
-
-    private fun setShuffleOrder(json: Any?) {
-        val map = json as Map<*, *>
-        val id = mapGet<String>(map, "id") ?: return
-        val mediaSource = mediaSources[id] ?: return
-        when (mapGet<String>(map, "type")) {
-            "concatenating" -> {
-                (mediaSource as ConcatenatingMediaSource)
-                    .setShuffleOrder(decodeShuffleOrder(mapGet(map, "shuffleOrder")!!))
-                val children = mapGet<List<Any?>>(map, "children")!!
-                for (child in children) {
-                    setShuffleOrder(child)
-                }
-            }
-            "looping" -> setShuffleOrder(mapGet<Any>(map, "child"))
-        }
-    }
 
     private fun getAudioSource(json: Any?): MediaSource {
         val map = json as Map<*, *>
@@ -625,26 +574,10 @@ class AudioPlayer(
                 .setDurationUs(getLong(map["duration"])!!)
                 .setTag(id)
                 .createMediaSource()
-            "concatenating" -> ConcatenatingMediaSource(
-                false, // isAtomic
-                map["useLazyPreparation"] as Boolean,
-                decodeShuffleOrder(mapGet(map, "shuffleOrder")!!),
-                *getAudioSources(map["children"]).toTypedArray(),
-            )
-            "clipping" -> {
-                val start = getLong(map["start"])
-                val end = getLong(map["end"])
-                ClippingMediaSource(
-                    getAudioSource(map["child"]),
-                    start ?: 0L,
-                    end ?: C.TIME_END_OF_SOURCE,
-                )
-            }
-            "looping" -> {
-                val count = map["count"] as Int
-                val looperChild = getAudioSource(map["child"])
-                ConcatenatingMediaSource(*Array(count) { looperChild })
-            }
+            "clipping" -> ClippingMediaSource.Builder(getAudioSource(map["child"]))
+                .setStartPositionUs(getLong(map["start"]) ?: 0L)
+                .setEndPositionUs(getLong(map["end"]) ?: C.TIME_END_OF_SOURCE)
+                .build()
             else -> throw IllegalArgumentException("Unknown AudioSource type: $type")
         }
     }

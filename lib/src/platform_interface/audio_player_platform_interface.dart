@@ -344,7 +344,6 @@ class InitRequest {
     required this.id,
     this.audioLoadConfiguration,
     this.androidAudioEffects = const [],
-    this.darwinAudioEffects = const [],
     this.androidAudioOffloadPreferences,
     this.androidOffloadSchedulingEnabled,
     this.useLazyPreparation = true,
@@ -352,7 +351,6 @@ class InitRequest {
   final String id;
   final AudioLoadConfigurationMessage? audioLoadConfiguration;
   final List<AudioEffectMessage> androidAudioEffects;
-  final List<AudioEffectMessage> darwinAudioEffects;
 
   final AndroidAudioOffloadPreferencesMessage? androidAudioOffloadPreferences;
   final bool? androidOffloadSchedulingEnabled;
@@ -362,7 +360,6 @@ class InitRequest {
     'id': id,
     'audioLoadConfiguration': audioLoadConfiguration?.toMap(),
     'androidAudioEffects': androidAudioEffects.map((audioEffect) => audioEffect.toMap()).toList(),
-    'darwinAudioEffects': darwinAudioEffects.map((audioEffect) => audioEffect.toMap()).toList(),
     'androidAudioOffloadPreferences': androidAudioOffloadPreferences?.toMap(),
     'androidOffloadSchedulingEnabled': androidOffloadSchedulingEnabled,
     'useLazyPreparation': useLazyPreparation,
@@ -1052,22 +1049,6 @@ class ClippingAudioSourceMessage extends IndexedAudioSourceMessage {
     'child': child.toMap(),
     'start': start?.inMicroseconds,
     'end': end?.inMicroseconds,
-  };
-}
-
-/// Information about a looping audio source to be communicated with the
-/// platform implementation.
-class LoopingAudioSourceMessage extends AudioSourceMessage {
-  new({required super.id, required this.child, required this.count});
-  final AudioSourceMessage child;
-  final int count;
-
-  @override
-  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
-    'type': 'looping',
-    'id': id,
-    'child': child.toMap(),
-    'count': count,
   };
 }
 
