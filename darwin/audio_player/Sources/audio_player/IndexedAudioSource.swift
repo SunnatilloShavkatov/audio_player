@@ -50,8 +50,6 @@ class IndexedAudioSource: AudioSource {
 
     func preparePlayerItem2() {}
 
-    func applyPreferredForwardBufferDuration() {}
-
     func applyCanUseNetworkResourcesForLiveStreamingWhilePaused() {}
 
     func applyPreferredPeakBitRate() {}

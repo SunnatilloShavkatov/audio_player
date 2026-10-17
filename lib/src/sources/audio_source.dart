@@ -130,13 +130,8 @@ abstract class UriAudioSource extends IndexedAudioSource {
   /// [uri].
   Uri get _effectiveUri => _overrideUri ?? uri;
 
-  Map<String, String>? get _mergedHeaders => headers == null && _userAgent == null
-      ? null
-      : {
-          if (headers != null)
-            for (final key in headers!.keys) key: headers![key]!,
-          'User-Agent': ?_userAgent,
-        };
+  Map<String, String>? get _mergedHeaders =>
+      headers == null && _userAgent == null ? null : {...?headers, 'User-Agent': ?_userAgent};
 
   @override
   Future<void> _onLoad() async {
@@ -228,7 +223,6 @@ class ProgressiveAudioSource extends UriAudioSource {
 /// * http(s): loads from an HTTP(S) resource.
 ///
 /// On platforms except for the web, the supplied [headers] will be passed with
-/// the HTTP(S) request. Currently headers are not recursively applied to items
 /// the HTTP(S) request. Currently headers are not applied recursively.
 ///
 /// If headers are set, audio_player will create a cleartext local HTTP proxy on

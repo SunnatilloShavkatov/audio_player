@@ -5,7 +5,6 @@
 import 'dart:async';
 
 import 'package:audio_player/audio_player.dart' show AndroidEqualizer;
-import 'package:audio_player/src/audio_player.dart' show AndroidEqualizer;
 import 'package:audio_player/src/platform_interface/method_channel_audio_player.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 

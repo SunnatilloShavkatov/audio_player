@@ -46,9 +46,10 @@ class MethodChannelAudioPlayerInstance extends AudioPlayerInstancePlatform {
           .receiveBroadcastStream()
           .cast<Map<dynamic, dynamic>>()
           .map(PlaybackEventMessage.fromMap),
-      _playerData = EventChannel(
-        '$_channelPrefix.data.$id',
-      ).receiveBroadcastStream().cast<Map<dynamic, dynamic>>().map(PlayerDataMessage.fromMap);
+      _playerData = EventChannel('$_channelPrefix.data.$id')
+          .receiveBroadcastStream()
+          .cast<Map<dynamic, dynamic>>()
+          .map(PlayerDataMessage.fromMap);
 
   final MethodChannel _channel;
 
@@ -164,9 +165,8 @@ class MethodChannelAudioPlayerInstance extends AudioPlayerInstancePlatform {
   @override
   Future<AndroidEqualizerGetParametersResponse> androidEqualizerGetParameters(
     AndroidEqualizerGetParametersRequest request,
-  ) async => AndroidEqualizerGetParametersResponse.fromMap(
-    await _call('androidEqualizerGetParameters', request.toMap()),
-  );
+  ) async =>
+      AndroidEqualizerGetParametersResponse.fromMap(await _call('androidEqualizerGetParameters', request.toMap()));
 
   @override
   Future<AndroidEqualizerBandSetGainResponse> androidEqualizerBandSetGain(

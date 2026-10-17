@@ -1627,10 +1627,6 @@ class AudioPlayer {
 
       final platform = await _lock.synchronized(() async {
         final oldPlatform = _platformValue;
-        // Strangely, this throws "Cannot complete a future with itself" when
-        // _playbackEventSubscription==null under flutter test.
-        // await _playbackEventSubscription?.cancel();
-        // await _playerDataSubscription?.cancel();
         if (_playbackEventSubscription != null) {
           await _playbackEventSubscription!.cancel();
         }

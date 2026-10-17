@@ -68,13 +68,6 @@ final class UriAudioSource: IndexedAudioSource {
         item?.seekableTimeRanges.last?.timeRangeValue
     }
 
-    // Not used. XXX: Remove?
-    override func applyPreferredForwardBufferDuration() {
-        guard let duration = loadControl.preferredForwardBufferDuration else { return }
-        let value = Self.seconds(fromMicroseconds: duration)
-        item?.preferredForwardBufferDuration = value
-        item2?.preferredForwardBufferDuration = value
-    }
 
     override func applyCanUseNetworkResourcesForLiveStreamingWhilePaused() {
         item?.canUseNetworkResourcesForLiveStreamingWhilePaused = loadControl.canUseNetworkResourcesForLiveStreamingWhilePaused

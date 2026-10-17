@@ -1,5 +1,3 @@
-import AVFoundation
-
 #if os(iOS)
 import Flutter
 #elseif os(macOS)

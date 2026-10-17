@@ -76,10 +76,6 @@ final class ClippingAudioSource: IndexedAudioSource {
         return CMTimeCompare(pos, dur) >= 0 ? dur : pos
     }
 
-    override func applyPreferredForwardBufferDuration() {
-        audioSource.applyPreferredForwardBufferDuration()
-    }
-
     override func applyCanUseNetworkResourcesForLiveStreamingWhilePaused() {
         audioSource.applyCanUseNetworkResourcesForLiveStreamingWhilePaused()
     }

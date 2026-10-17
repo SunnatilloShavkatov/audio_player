@@ -15,10 +15,7 @@ void main() {
     await tester.pumpWidget(const MyApp());
 
     expect(
-      find.byWidgetPredicate(
-        (Widget widget) =>
-            widget is Text && widget.data!.startsWith('Playlist'),
-      ),
+      find.byWidgetPredicate((Widget widget) => widget is Text && widget.data!.startsWith('Playlist')),
       findsOneWidget,
     );
   });

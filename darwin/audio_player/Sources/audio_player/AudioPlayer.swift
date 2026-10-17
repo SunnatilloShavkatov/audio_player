@@ -32,13 +32,11 @@ private enum PlayerError: Error {
 // TODO: Check for and report invalid state transitions.
 // TODO: Apply Apple's guidance on seeking: https://developer.apple.com/library/archive/qa/qa1820/_index.html
 final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
-    private let registrar: FlutterPluginRegistrar
     private let methodChannel: FlutterMethodChannel
     private let eventChannel: BetterEventChannel
     private let dataEventChannel: BetterEventChannel
     private let playerId: String
     private let loadControl: LoadControl
-    private let useLazyPreparation: Bool
 
     private(set) var player: AVQueuePlayer?
     private(set) var speed: Float = 1.0
@@ -72,9 +70,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     private let observedItems = NSHashTable<AVPlayerItem>.weakObjects()
 
     init(registrar: FlutterPluginRegistrar, playerId: String, loadConfiguration: [String: Any]?, useLazyPreparation: Bool) {
-        self.registrar = registrar
         self.playerId = playerId
-        self.useLazyPreparation = useLazyPreparation
         let messenger = registrar.binaryMessenger
         methodChannel = FlutterMethodChannel(name: "uz.plugin.audio_player.methods.\(playerId)", binaryMessenger: messenger)
         eventChannel = BetterEventChannel(name: "uz.plugin.audio_player.events.\(playerId)", messenger: messenger)
@@ -380,8 +376,6 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         playerItem.removeObserver(self, forKeyPath: "playbackBufferFull")
         playerItem.removeObserver(self, forKeyPath: "loadedTimeRanges")
         NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
-        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
-        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemPlaybackStalled, object: playerItem)
     }
 
     private func addItemObservers(_ playerItem: AVPlayerItem?) {
@@ -395,10 +389,6 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         playerItem.addObserver(self, forKeyPath: "loadedTimeRanges", options: .new, context: nil)
         // Get notified when playback has reached the end
         NotificationCenter.default.addObserver(self, selector: #selector(onComplete(_:)), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
-        // Get notified when playback stops due to a failure (currently unused)
-        NotificationCenter.default.addObserver(self, selector: #selector(onFailToComplete(_:)), name: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
-        // Get notified when playback stalls (currently unused)
-        NotificationCenter.default.addObserver(self, selector: #selector(onItemStalled(_:)), name: .AVPlayerItemPlaybackStalled, object: playerItem)
 
         // Only ask for the ICY identifiers that metadataOutput(_:didOutputTimedMetadataGroups:from:)
         // reads, so other timed metadata is never delivered to the main queue.
@@ -682,10 +672,6 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     }
 
     // MARK: - Notifications
-
-    @objc private func onItemStalled(_ notification: Notification) {}
-
-    @objc private func onFailToComplete(_ notification: Notification) {}
 
     @objc private func onComplete(_ notification: Notification) {
         guard let endedPlayerItem = notification.object as? IndexedPlayerItem else { return }

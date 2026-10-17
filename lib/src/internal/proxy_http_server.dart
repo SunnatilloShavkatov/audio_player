@@ -127,10 +127,10 @@ class _HttpRangeResponse {
   final int? fullLength;
 
   /// The end byte position (exclusive).
-  int? get endEx => end + 1;
+  int get endEx => end + 1;
 
   /// The number of bytes requested.
-  int? get length => endEx == null ? null : endEx! - start;
+  int get length => endEx - start;
 
   /// The content-range header value to use in HTTP responses.
   String get header => 'bytes $start-$end/${fullLength?.toString() ?? "*"}';
@@ -174,7 +174,7 @@ _ProxyHandler _proxyHandlerForSource(StreamAudioSource source) {
         sourceResponse.offset! + sourceResponse.contentLength! - 1,
         sourceResponse.sourceLength,
       );
-      request.response.contentLength = range.length ?? -1;
+      request.response.contentLength = range.length;
       request.response.headers.set(HttpHeaders.contentRangeHeader, range.header);
       request.response.statusCode = 206;
     } else {
@@ -275,7 +275,6 @@ _ProxyHandler _proxyHandlerForUri(Uri uri, {Map<String, String>? headers, String
       // We likely are dealing with a streaming protocol
       if (uri.scheme == 'http') {
         // Try parsing HTTP 0.9 response
-        //request.response.headers.clear();
         final socket = await Socket.connect(uri.host, uri.port);
         final clientSocket = await request.response.detachSocket(writeHeaders: false);
         final done = Completer<dynamic>();
@@ -295,9 +294,6 @@ _ProxyHandler _proxyHandlerForUri(Uri uri, {Map<String, String>? headers, String
             headers[name] = value.join(',');
           }
         });
-        for (final name in headers.keys) {
-          headers[name] = headers[name];
-        }
         socket.write('GET ${uri.path} HTTP/1.1\n');
         if (host != null) {
           socket.write('Host: $host\n');

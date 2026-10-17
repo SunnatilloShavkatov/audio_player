@@ -24,7 +24,7 @@ iOS and macOS share one Swift source set (`sharedDarwinSource: true`). Platform 
 - `lib/src/platform_interface/` — platform interface and the `MethodChannel` implementation.
 - `lib/src/internal/` — local proxy HTTP server, idle player, utils. Not public API.
 - `darwin/`, `android/` — native implementations.
-- `test/` — Dart unit tests (mockito). `example/` — demo app plus `example/integration_test/`.
+- `test/` — Dart unit tests (mockito). `example/` — demo app.
 
 Channel names: methods `uz.plugin.audio_player.methods`; per-player events
 `uz.plugin.audio_player.events.<playerId>`. Dart and both native sides must agree on them and on the message shape.
@@ -38,7 +38,6 @@ dart format --set-exit-if-changed .        # page width 120, see analysis_option
 flutter test                               # unit tests in test/
 cd example && flutter build ios --simulator --no-codesign   # compiles the Swift sources
 cd example && flutter build apk --debug                      # compiles the Kotlin sources
-cd example && flutter test integration_test                  # needs a device or simulator
 ```
 
 Lints come from `package:analysis_lints`. Fix analyzer warnings in code you touch.
