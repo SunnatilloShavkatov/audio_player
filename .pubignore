@@ -1,10 +1,20 @@
 # NOTE: when a .pubignore exists, `dart pub publish` ignores the .gitignore in
 # the same directory, so everything from .gitignore is repeated below.
-# Keep the "Same as .gitignore" section in sync with .gitignore.
+# Keep the section below the marker line a verbatim copy of .gitignore.
 
-# Publish-only exclusions (tracked in git, not needed by package consumers)
+# Publish-only exclusions (tracked in git, not needed by package consumers).
+# The example keeps only lib/, pubspec.yaml, README.md and analysis_options.yaml,
+# which is enough for the pub.dev "Example" tab. Platform runners are scaffolding
+# that `flutter create .` regenerates.
+/example/android/
+/example/ios/
+/example/macos/
+/example/test/
 /example/integration_test/
 /example/test_driver/
+/example/.metadata
+/AGENTS.md
+/CLAUDE.md
 
 # ---- Same as .gitignore ----
 # Miscellaneous
@@ -43,6 +53,7 @@ pubspec.lock
 **/android/**/gradle-wrapper.jar
 **/android/.gradle
 **/android/.cxx
+**/.kotlin/
 **/android/captures/
 **/android/gradlew
 **/android/gradlew.bat
@@ -82,10 +93,14 @@ pubspec.lock
 flutter_export_environment.sh
 GeneratedPluginRegistrant.*
 generated_plugin_registrant.dart
+Podfile.lock
+
+# Symbolication / obfuscation
+app.*.symbols
+app.*.map.json
 
 # Exceptions to the rules above
 !**/ios/**/default.mode1v3
 !**/ios/**/default.mode2v3
 !**/ios/**/default.pbxuser
 !**/ios/**/default.perspectivev3
-/example/android/.kotlin/

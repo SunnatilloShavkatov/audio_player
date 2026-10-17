@@ -30,8 +30,14 @@ final class BetterEventChannel: NSObject, FlutterStreamHandler {
         eventSink?(event)
     }
 
-    func dispose() {
-        eventSink?(FlutterEndOfEventStream)
+    /// When `calledFromDeinit` is true the FlutterEngine is being destroyed, so
+    /// touching the messenger (end-of-stream event, handler removal) would raise
+    /// NSInternalInconsistencyException. The engine drops its handlers itself.
+    func dispose(calledFromDeinit: Bool) {
+        let sink = eventSink
+        eventSink = nil
+        if calledFromDeinit { return }
+        sink?(FlutterEndOfEventStream)
         eventChannel.setStreamHandler(nil)
     }
 }

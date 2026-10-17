@@ -1135,9 +1135,10 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         player.removeObserver(self, forKeyPath: "currentItem")
         player.removeObserver(self, forKeyPath: "timeControlStatus")
         self.player = nil
-        // Untested:
-        eventChannel.dispose()
-        dataEventChannel.dispose()
-        methodChannel.setMethodCallHandler(nil)
+        eventChannel.dispose(calledFromDeinit: calledFromDeinit)
+        dataEventChannel.dispose(calledFromDeinit: calledFromDeinit)
+        if !calledFromDeinit {
+            methodChannel.setMethodCallHandler(nil)
+        }
     }
 }
