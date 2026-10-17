@@ -113,11 +113,6 @@ void main() {
         throwsUnimplementedError,
       );
       expect(() => instance.dispose(DisposeRequest()), throwsUnimplementedError);
-      expect(
-        () => instance.setWebCrossOrigin(SetWebCrossOriginRequest(crossOrigin: WebCrossOriginMessage.anonymous)),
-        throwsUnimplementedError,
-      );
-      expect(() => instance.setWebSinkId(SetWebSinkIdRequest(sinkId: 'sink')), throwsUnimplementedError);
     });
   });
 
@@ -396,16 +391,6 @@ void main() {
         AndroidEqualizerBandSetGainResponse.fromMap(<dynamic, dynamic>{}),
         isA<AndroidEqualizerBandSetGainResponse>(),
       );
-    });
-
-    test('Web messages', () {
-      final crossOrigin = SetWebCrossOriginRequest(crossOrigin: WebCrossOriginMessage.useCredentials);
-      expect(crossOrigin.crossOrigin, equals(WebCrossOriginMessage.useCredentials));
-      expect(SetWebCrossOriginResponse(), isA<SetWebCrossOriginResponse>());
-
-      final sink = SetWebSinkIdRequest(sinkId: 'speaker');
-      expect(sink.sinkId, equals('speaker'));
-      expect(SetWebSinkIdResponse(), isA<SetWebSinkIdResponse>());
     });
 
     test('PlaybackEventMessage and PlayerDataMessage fromMap', () {

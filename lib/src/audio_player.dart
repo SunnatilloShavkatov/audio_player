@@ -18,6 +18,7 @@ import 'package:synchronized/synchronized.dart';
 
 part 'audio_effects.dart';
 part 'internal/idle_audio_player.dart';
+part 'internal/test_hooks.dart';
 part 'internal/utils.dart';
 part 'load_configuration.dart';
 part 'metadata.dart';
@@ -70,10 +71,9 @@ AudioPlayerPlatform get _pluginPlatform {
 class AudioPlayer {
   /// Creates an [AudioPlayer].
   ///
-  /// Apps requesting remote URLs should set the [_userAgent] parameter which
-  /// will be set as the `user-agent` header on all requests (except on web
-  /// where the browser's user agent will be used) to identify the client. If
-  /// unspecified, a platform-specific default will be supplied.
+  /// Apps requesting remote URLs should set the `userAgent` parameter which
+  /// will be set as the `user-agent` header on all requests to identify the
+  /// client. If unspecified, a platform-specific default will be supplied.
   ///
   /// Request headers including `user-agent` are sent by the platform player
   /// itself. On iOS/macOS, this uses the `AVURLAssetHTTPUserAgentKey` on iOS 16
@@ -88,13 +88,13 @@ class AudioPlayer {
   /// [handleInterruptions] to `false` and interface directly with the audio
   /// session via the [audio_session](https://pub.dev/packages/audio_session)
   /// package. If you do not wish audio_player to automatically activate the audio
-  /// session when playing audio, set [_handleAudioSessionActivation] to `false`.
+  /// session when playing audio, set `handleAudioSessionActivation` to `false`.
   /// If you do not want audio_player to respect the global
   /// [AndroidAudioAttributes] configured by audio_session, set
   /// [androidApplyAudioAttributes] to `false`.
   ///
   /// The default audio loading and buffering behaviour can be configured via
-  /// the [_audioLoadConfiguration] parameter.
+  /// the `audioLoadConfiguration` parameter.
   ///
   /// [useLazyPreparation] specifies whether audio sources will be loaded lazily
   /// in preparation to be played. Set this to `false` to make all audio
@@ -105,11 +105,10 @@ class AudioPlayer {
   ///
   /// When [maxSkipsOnError] is set, the player will automatically skip to the
   /// next audio source on load errors, and will give up after [maxSkipsOnError]
-  /// attempts. This is supported on Android, iOS and web. For other platforms,
-  /// check the documentation of the respective platform implementation.
+  /// attempts.
   ///
-  /// [_androidAudioOffloadPreferences] specifies whether audio offload is enabled
-  /// on Android.
+  /// `androidAudioOffloadPreferences` specifies whether audio offload is
+  /// enabled on Android.
   new({
     this._userAgent,
     bool handleInterruptions = true,
@@ -423,8 +422,6 @@ class AudioPlayer {
   bool _playInterrupted = false;
   bool _platformLoading = false;
   AndroidAudioAttributes? _androidAudioAttributes;
-  WebCrossOrigin? _webCrossOrigin;
-  String _webSinkId = '';
   final bool _androidApplyAudioAttributes;
   final bool _handleAudioSessionActivation;
 
@@ -622,13 +619,6 @@ class AudioPlayer {
   /// Whether the player allows external playback on iOS/macOS, defaults to
   /// false.
   bool get allowsExternalPlayback => _allowsExternalPlayback;
-
-  /// The `crossorigin` attribute set the `<audio>` element backing this player
-  /// instance on web.
-  WebCrossOrigin? get webCrossOrigin => _webCrossOrigin;
-
-  /// The current sink ID of the `<audio>` element backing this instance on web.
-  String get webSinkId => _webSinkId;
 
   /// The current position of the player.
   Duration get position => _getPositionFor(playbackEvent);
@@ -1049,13 +1039,16 @@ class AudioPlayer {
   /// original [AudioSource]. If [end] is null, it will be reset to the end of
   /// the original [AudioSource]. This method cannot be called from the
   /// [ProcessingState.idle] state.
+  ///
+  /// Throws a [StateError] unless the playlist contains exactly one
+  /// [UriAudioSource].
   Future<Duration?> setClip({Duration? start, Duration? end, Object? tag}) async {
     if (_disposed) {
       return null;
     }
     final audioSource = _playlist.children.firstOrNull;
     if (_playlist.children.length != 1 || audioSource is! UriAudioSource) {
-      throw Exception('Playlist must contain 1 UriAudioSource');
+      throw StateError('setClip requires the playlist to contain exactly one UriAudioSource');
     }
     unawaited(_setPlatformActive(true)?.catchError((_) => null));
     final duration = await _load(
@@ -1198,7 +1191,8 @@ class AudioPlayer {
 
   /// Sets the volume of this player, where 1.0 is normal volume.
   ///
-  /// Throws an [ArgumentError] if [volume] is negative.
+  /// Throws an [ArgumentError] if [volume] is negative. If the platform call
+  /// fails, [volume] reverts to its previous value and the error is rethrown.
   Future<void> setVolume(double volume) async {
     if (volume.isNaN || volume < 0) {
       throw ArgumentError.value(volume, 'volume', 'must not be negative');
@@ -1206,8 +1200,14 @@ class AudioPlayer {
     if (_disposed) {
       return;
     }
+    final previousVolume = this.volume;
     _volumeSubject.add(volume);
-    await (await _platform).setVolume(SetVolumeRequest(volume: volume));
+    try {
+      await (await _platform).setVolume(SetVolumeRequest(volume: volume));
+    } catch (e) {
+      _volumeSubject.add(previousVolume);
+      rethrow;
+    }
   }
 
   /// Sets whether silence should be skipped in audio playback. (Currently
@@ -1234,7 +1234,9 @@ class AudioPlayer {
   /// the playback speed is faster than the player is able to downloaded the
   /// audio.
   ///
-  /// Throws an [ArgumentError] if [speed] is not greater than 0.
+  /// Throws an [ArgumentError] if [speed] is not greater than 0. If the
+  /// platform call fails, [speed] reverts to its previous value and the error
+  /// is rethrown.
   Future<void> setSpeed(double speed) async {
     if (speed.isNaN || speed <= 0) {
       throw ArgumentError.value(speed, 'speed', 'must be greater than 0');
@@ -1247,8 +1249,14 @@ class AudioPlayer {
         playbackEvent: playbackEvent.copyWith(updatePosition: position, updateTime: DateTime.now()),
       ),
     );
+    final previousSpeed = this.speed;
     _speedSubject.add(speed);
-    await (await _platform).setSpeed(SetSpeedRequest(speed: speed));
+    try {
+      await (await _platform).setSpeed(SetSpeedRequest(speed: speed));
+    } catch (e) {
+      _speedSubject.add(previousSpeed);
+      rethrow;
+    }
   }
 
   /// Sets the factor by which pitch will be shifted. (Currently Android only;
@@ -1337,7 +1345,8 @@ class AudioPlayer {
     );
   }
 
-  /// Sets preferredPeakBitRate on iOS/macOS, defaults to true.
+  /// Sets preferredPeakBitRate (in bits per second) on iOS/macOS, defaults to
+  /// 0, which means no limit.
   Future<void> setPreferredPeakBitRate(double preferredPeakBitRate) async {
     if (_disposed) {
       return;
@@ -1433,45 +1442,6 @@ class AudioPlayer {
         usage: audioAttributes.usage.value,
       ),
     );
-  }
-
-  /// Sets the `crossorigin` attribute on the `<audio>` element backing this
-  /// player instance on web (see
-  /// [HTMLMediaElement crossorigin](https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/crossOrigin) ).
-  ///
-  /// If [webCrossOrigin] is null (the initial state), the URL will be fetched
-  /// without CORS. If it is `useCredentials`, a CORS request will be made
-  /// exchanging credentials (via cookies/certificates/HTTP authentication)
-  /// regardless of the origin. If it is 'anonymous', a CORS request will be
-  /// made, but credentials are exchanged only if the URL is fetched from the
-  /// same origin.
-  Future<void> setWebCrossOrigin(WebCrossOrigin? webCrossOrigin) async {
-    if (_disposed) {
-      return;
-    }
-    if (!kIsWeb && !_isUnitTest()) {
-      return;
-    }
-
-    await (await _platform).setWebCrossOrigin(
-      SetWebCrossOriginRequest(
-        crossOrigin: webCrossOrigin == null ? null : WebCrossOriginMessage.values[webCrossOrigin.index],
-      ),
-    );
-    _webCrossOrigin = webCrossOrigin;
-  }
-
-  /// Sets a specific device output id on Web.
-  Future<void> setWebSinkId(String webSinkId) async {
-    if (_disposed) {
-      return;
-    }
-    if (!kIsWeb && !_isUnitTest()) {
-      return;
-    }
-
-    await (await _platform).setWebSinkId(SetWebSinkIdRequest(sinkId: webSinkId));
-    _webSinkId = webSinkId;
   }
 
   /// Releases all resources associated with this player. You must invoke this
@@ -1665,7 +1635,7 @@ class AudioPlayer {
             _active) {
           unawaited(_setPlatformActive(false)?.catchError((_) => null));
         }
-      }, onError: (Object e, [StackTrace? st]) {});
+      }, onError: _reportPlaybackEventError);
     }
 
     Future<AudioPlayerInstancePlatform> setPlatform() async {
@@ -1809,22 +1779,6 @@ class AudioPlayer {
             return inactiveResult(platform);
           }
         }
-        if (kIsWeb) {
-          if (_webCrossOrigin != null) {
-            await platform.setWebCrossOrigin(
-              SetWebCrossOriginRequest(crossOrigin: WebCrossOriginMessage.values[_webCrossOrigin!.index]),
-            );
-            if (checkInterruption()) {
-              return inactiveResult(platform);
-            }
-          }
-          if (_webSinkId != '') {
-            await platform.setWebSinkId(SetWebSinkIdRequest(sinkId: _webSinkId));
-            if (checkInterruption()) {
-              return inactiveResult(platform);
-            }
-          }
-        }
         for (final audioEffect in _audioPipeline._audioEffects) {
           await audioEffect._activate(platform);
           if (checkInterruption()) {
@@ -1851,6 +1805,29 @@ class AudioPlayer {
 
     _platform = setPlatform();
     return _platform.then((_) => durationCompleter.future);
+  }
+
+  /// Handles an error from the platform's playback event stream.
+  ///
+  /// The native players send each playback error on the event channel and
+  /// then set it as the `errorCode`/`errorMessage` of the next playback event,
+  /// which is what [errorStream] is built from. The [PlatformException] is
+  /// therefore already reported, and forwarding it as well would report every
+  /// error twice (and count it twice towards `maxSkipsOnError`). Any other
+  /// error, such as a malformed event, is reported via
+  /// [FlutterError.reportError].
+  void _reportPlaybackEventError(Object error, StackTrace stackTrace) {
+    if (error is PlatformException) {
+      return;
+    }
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stackTrace,
+        library: 'audio_player',
+        context: ErrorDescription('while receiving playback events'),
+      ),
+    );
   }
 
   /// Disposes of the given platform.
@@ -1900,48 +1877,4 @@ class AudioPlayer {
       return PlayerException(code, e.message, index);
     }
   }
-
-  @visibleForTesting
-  AudioPlayerInstancePlatform get testIdlePlatform =>
-      _idlePlatform ??
-      (_idlePlatform = _IdleAudioPlayer(
-        id: _id = _generateId(),
-        sequenceStream: sequenceStream,
-        errorCode: playbackEvent.errorCode,
-        errorMessage: playbackEvent.errorMessage,
-      ));
-
-  @visibleForTesting
-  static AudioSource testCreatePlaylist(List<AudioSource> children, AudioPlayer player) {
-    final playlist = _PlaylistAudioSource(children: children).._onAttach(player);
-    return playlist;
-  }
-
-  @visibleForTesting
-  static int testPlaylistLength(AudioSource playlist) => (playlist as _PlaylistAudioSource).length;
-
-  @visibleForTesting
-  static AudioSource testPlaylistGet(AudioSource playlist, int index) => (playlist as _PlaylistAudioSource)[index];
-
-  @visibleForTesting
-  static void testPluginLoadRequest() {
-    final req =
-        _PluginLoadRequest(
-            audioSources: [],
-            shuffleOrder: DefaultShuffleOrder(),
-            initialIndex: 0,
-            initialPosition: Duration.zero,
-          )
-          ..resetInitialSeekValues()
-          ..interrupted = true;
-    try {
-      req.checkInterruption();
-    } catch (_) {}
-  }
-
-  @visibleForTesting
-  Exception testConvertException(PlatformException e) => _convertException(e);
-
-  @visibleForTesting
-  static Uri testEncodeDataUrl(String base64Data, String mimeType) => _encodeDataUrl(base64Data, mimeType);
 }

@@ -1,11 +1,26 @@
-## Unreleased
+## 2.0.0
 
 * **Breaking:** removed the local HTTP proxy server. Request headers and the user agent are always sent by the native
   players: on Android through ExoPlayer's `setUserAgent` and `setDefaultRequestProperties`, on iOS/macOS through
   `AVURLAssetHTTPUserAgentKey` or `AVURLAssetHTTPHeaderFieldsKey`. The `useProxyForRequestHeaders` constructor
   parameter is removed, and apps no longer need `NSAllowsLocalNetworking` for this plugin.
-* **Breaking:** removed `StreamAudioSource`, `StreamAudioResponse` and `LockCachingAudioSource`, which were served
-  through the proxy.
+* **Breaking:** removed `StreamAudioSource`, `StreamAudioResponse` and `LockCachingAudioSource` (including
+  `LockCachingAudioSource.downloadProgressStream` and `clearCache`), which were served through the proxy.
+* **Breaking:** removed the web-only `AudioPlayer.setWebCrossOrigin`, `setWebSinkId`, `webCrossOrigin` and
+  `webSinkId`, and the `WebCrossOrigin` enum. This package has no web implementation, so they never had an effect.
+* **Breaking:** removed the `@visibleForTesting` members of `AudioPlayer` from the public API (`testIdlePlatform`,
+  `testConvertException`, `testCreatePlaylist`, `testPlaylistLength`, `testPlaylistGet`, `testPluginLoadRequest`,
+  `testEncodeDataUrl`, `testProxyStart` and `testProxyStop`). The package's own tests reach them through an extension
+  that `package:audio_player/audio_player.dart` does not export.
+* **Breaking:** `setClip` throws a `StateError` instead of a plain `Exception` when the playlist does not contain
+  exactly one `UriAudioSource`. Code that catches `Exception` around `setClip` must catch `StateError` instead.
+* `setVolume` and `setSpeed` revert `volume` and `speed` to their previous values if the platform call fails, like
+  `setPitch`.
+* Errors on the platform's playback event stream other than the native player errors (which `errorStream` already
+  reports from the playback event) are reported through `FlutterError.reportError` instead of being dropped.
+* Docs: the `AudioPlayer` constructor documents `userAgent`, `handleAudioSessionActivation`, `audioLoadConfiguration`
+  and `androidAudioOffloadPreferences` by their public names, and `setPreferredPeakBitRate` documents its default of
+  0 (no limit).
 * Removed the `crypto` dependency.
 
 ## 1.0.1

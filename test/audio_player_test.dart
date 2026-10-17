@@ -300,24 +300,6 @@ void runTests() {
     await player.dispose();
   });
 
-  test('setWebCrossOrigin', () async {
-    final player = AudioPlayer();
-    expect(player.webCrossOrigin, isNull);
-    await player.setWebCrossOrigin(WebCrossOrigin.anonymous);
-    expect(player.webCrossOrigin, equals(WebCrossOrigin.anonymous));
-    await player.dispose();
-  });
-
-  test('setWebSinkId', () async {
-    final player = AudioPlayer();
-    expect(player.webSinkId, equals(''));
-    await player.setWebSinkId('foo');
-    expect(player.webSinkId, equals('foo'));
-    await player.setWebSinkId('');
-    expect(player.webSinkId, equals(''));
-    await player.dispose();
-  });
-
   test('setAndroidAudioAttributes', () async {
     final player = AudioPlayer();
     await player.setAndroidAudioAttributes(const AndroidAudioAttributes());

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-`audio_player`: Flutter audio plugin (just_audio-style; gapless playlists, clipping, HLS/DASH, effects),
+`audio_player`: Flutter audio plugin (gapless playlists, clipping, HLS/DASH, effects),
 published as `uz.plugin.audio_player`.
 
 ## Layout

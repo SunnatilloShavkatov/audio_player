@@ -54,10 +54,5 @@ void main() {
       expect(player.audioSource, equals(source));
       await player.dispose();
     });
-
-    test('WebCrossOrigin enum values', () {
-      expect(WebCrossOrigin.values, contains(WebCrossOrigin.anonymous));
-      expect(WebCrossOrigin.values, contains(WebCrossOrigin.useCredentials));
-    });
   });
 }

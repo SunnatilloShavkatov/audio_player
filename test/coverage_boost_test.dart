@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:audio_player/audio_player.dart';
+import 'package:audio_player/src/audio_player.dart' show AudioPlayerTestHooks;
 import 'package:audio_player/src/platform_interface/audio_player_platform_interface.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rxdart/rxdart.dart';
@@ -15,9 +17,27 @@ class _CustomHttpOverrides extends HttpOverrides;
 class _FailingPlatformInstance extends SimpleMockAudioPlayerInstance {
   new(super.initRequest);
 
+  bool throwOnSetVolume = false;
+  bool throwOnSetSpeed = false;
   bool throwOnSetPitch = false;
   bool throwOnSetSkipSilence = false;
   bool throwOnPlay = false;
+
+  @override
+  Future<SetVolumeResponse> setVolume(SetVolumeRequest request) {
+    if (throwOnSetVolume) {
+      return Future.error(PlatformException(code: 'ERROR', message: 'Volume failed'));
+    }
+    return super.setVolume(request);
+  }
+
+  @override
+  Future<SetSpeedResponse> setSpeed(SetSpeedRequest request) {
+    if (throwOnSetSpeed) {
+      return Future.error(PlatformException(code: 'ERROR', message: 'Speed failed'));
+    }
+    return super.setSpeed(request);
+  }
 
   @override
   Future<SetPitchResponse> setPitch(SetPitchRequest request) {
@@ -152,7 +172,7 @@ void main() {
       expect(paramsResp.parameters.bands, isEmpty);
 
       // plugin load request helpers
-      AudioPlayer.testPluginLoadRequest();
+      AudioPlayerTestHooks.testPluginLoadRequest();
 
       await player.dispose();
     });
@@ -198,10 +218,10 @@ void main() {
       final child2 = AudioSource.uri(Uri.parse('https://example.com/c2.mp3'));
 
       // testCreatePlaylist attaches children to player
-      final playlist = AudioPlayer.testCreatePlaylist([child1, child2], player);
+      final playlist = AudioPlayerTestHooks.testCreatePlaylist([child1, child2], player);
       expect(playlist.sequence.length, equals(2));
-      expect(AudioPlayer.testPlaylistLength(playlist), equals(2));
-      expect(AudioPlayer.testPlaylistGet(playlist, 0), equals(child1));
+      expect(AudioPlayerTestHooks.testPlaylistLength(playlist), equals(2));
+      expect(AudioPlayerTestHooks.testPlaylistGet(playlist, 0), equals(child1));
 
       // active addAudioSource: load first to make player active
       await player.setAudioSources([child1]);
@@ -288,7 +308,7 @@ void main() {
       expect((exNumeric as PlayerException).code, equals(404));
 
       // testEncodeDataUrl
-      final dataUri = AudioPlayer.testEncodeDataUrl('aGVsbG8=', 'audio/mpeg');
+      final dataUri = AudioPlayerTestHooks.testEncodeDataUrl('aGVsbG8=', 'audio/mpeg');
       expect(dataUri.toString(), equals('data:audio/mpeg;base64,aGVsbG8='));
 
       await player.dispose();
@@ -414,7 +434,54 @@ void main() {
       await player.dispose();
     });
 
-    test('AudioPlayer platform error rollback in setPitch, setSkipSilence and play', () async {
+    test('playback event stream errors are not reported twice and others reach FlutterError', () async {
+      final platform = AudioPlayerPlatform.instance as SimpleMockAudioPlayerPlatform;
+      final player = AudioPlayer();
+      await player.setAudioSource(AudioSource.uri(Uri.parse('https://example.com/err.mp3')));
+      final instance = platform.players.values.last;
+
+      final errors = <PlayerException>[];
+      final errorSubscription = player.errorStream.listen(errors.add);
+      final reported = <FlutterErrorDetails>[];
+      final previousOnError = FlutterError.onError;
+      FlutterError.onError = reported.add;
+      try {
+        // A native error arrives on the event channel and then in the next
+        // playback event; errorStream reports it once, from the event.
+        instance.eventController
+          ..addError(PlatformException(code: '7', message: 'Native error'))
+          ..add(
+            PlaybackEventMessage(
+              processingState: ProcessingStateMessage.ready,
+              updatePosition: Duration.zero,
+              updateTime: DateTime.now(),
+              bufferedPosition: Duration.zero,
+              duration: const Duration(seconds: 30),
+              errorCode: 7,
+              errorMessage: 'Native error',
+              icyMetadata: null,
+              currentIndex: 0,
+              androidAudioSessionId: null,
+            ),
+          );
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(errors.map((e) => e.code), equals([7]));
+        expect(reported, isEmpty);
+
+        instance.eventController.addError(const FormatException('Malformed event'));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(reported.single.exception, isA<FormatException>());
+        expect(reported.single.library, equals('audio_player'));
+        expect(errors, hasLength(1));
+      } finally {
+        FlutterError.onError = previousOnError;
+        await errorSubscription.cancel();
+      }
+
+      await player.dispose();
+    });
+
+    test('AudioPlayer platform error rollback in setVolume, setSpeed, setPitch, setSkipSilence and play', () async {
       final failingPlatform = _FailingPlatform();
       AudioPlayerPlatform.instance = failingPlatform;
 
@@ -422,8 +489,17 @@ void main() {
       final source = AudioSource.uri(Uri.parse('https://example.com/fail.mp3'));
       await player.setAudioSource(source);
 
-      final instance = failingPlatform.lastInstance!..throwOnSetPitch = true;
+      final instance = failingPlatform.lastInstance!..throwOnSetVolume = true;
+      await expectLater(() => player.setVolume(0.5), throwsA(isA<PlatformException>()));
+      expect(player.volume, equals(1.0));
+
+      instance.throwOnSetSpeed = true;
+      await expectLater(() => player.setSpeed(2), throwsA(isA<PlatformException>()));
+      expect(player.speed, equals(1.0));
+
+      instance.throwOnSetPitch = true;
       await expectLater(() => player.setPitch(1.5), throwsA(isA<PlatformException>()));
+      expect(player.pitch, equals(1.0));
 
       instance.throwOnSetSkipSilence = true;
       await expectLater(() => player.setSkipSilenceEnabled(enabled: true), throwsA(isA<PlatformException>()));

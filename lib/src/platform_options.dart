@@ -41,6 +41,3 @@ class AndroidExtractorOptions {
     mp3Flags: mp3Flags,
   );
 }
-
-/// Possible values that can be passed to [AudioPlayer.setWebCrossOrigin].
-enum WebCrossOrigin { anonymous, useCredentials }

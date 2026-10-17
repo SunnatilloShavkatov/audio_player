@@ -2,7 +2,7 @@
 
 A feature-rich, high-performance audio player plugin for Flutter. Play, loop, clip, and sequence audio from assets, local files and remote URLs in gapless playlists.
 
-[![pub package](https://img.shields.io/badge/pub-v1.0.1-blue.svg)](https://github.com/SunnatilloShavkatov/audio_player)
+[![pub package](https://img.shields.io/badge/pub-v2.0.0-blue.svg)](https://pub.dev/packages/audio_player)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20macos-lightgrey.svg)](https://github.com/SunnatilloShavkatov/audio_player)
 
@@ -45,7 +45,7 @@ Or add it to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  audio_player: ^1.0.1
+  audio_player: ^2.0.0
 ```
 
 ---
@@ -193,7 +193,4 @@ flutter run
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
-`audio_player` is derived from [just_audio](https://github.com/ryanheise/just_audio) and
-[just_audio_platform_interface](https://pub.dev/packages/just_audio_platform_interface),
-Copyright (c) 2019-2020 Ryan Heise and the project contributors, used under the MIT License. The Android
-implementation uses AndroidX Media3 (ExoPlayer), licensed under the Apache License 2.0.
+The Android implementation uses AndroidX Media3 (ExoPlayer), licensed under the Apache License 2.0.

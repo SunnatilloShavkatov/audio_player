@@ -81,9 +81,9 @@ void main() {
       await player.dispose();
     });
 
-    test('AudioPlayer setClip throws if playlist does not contain 1 UriAudioSource', () async {
+    test('AudioPlayer setClip throws a StateError if playlist does not contain 1 UriAudioSource', () async {
       final player = AudioPlayer();
-      expect(player.setClip, throwsA(isA<Exception>()));
+      expect(player.setClip, throwsStateError);
       await player.dispose();
     });
 

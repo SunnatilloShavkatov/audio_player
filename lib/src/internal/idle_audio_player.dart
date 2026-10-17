@@ -84,13 +84,6 @@ class _IdleAudioPlayer extends AudioPlayerInstancePlatform {
   Future<SetShuffleOrderResponse> setShuffleOrder(SetShuffleOrderRequest request) async => SetShuffleOrderResponse();
 
   @override
-  Future<SetWebCrossOriginResponse> setWebCrossOrigin(SetWebCrossOriginRequest request) async =>
-      SetWebCrossOriginResponse();
-
-  @override
-  Future<SetWebSinkIdResponse> setWebSinkId(SetWebSinkIdRequest request) async => SetWebSinkIdResponse();
-
-  @override
   Future<SetAutomaticallyWaitsToMinimizeStallingResponse> setAutomaticallyWaitsToMinimizeStalling(
     SetAutomaticallyWaitsToMinimizeStallingRequest request,
   ) async => SetAutomaticallyWaitsToMinimizeStallingResponse();
