@@ -2,7 +2,7 @@
 
 A feature-rich, high-performance audio player plugin for Flutter. Play, loop, clip, and sequence audio from any source (assets, local files, remote URLs, and byte streams) in gapless playlists.
 
-[![pub package](https://img.shields.io/badge/pub-v1.0.0-blue.svg)](https://github.com/SunnatilloShavkatov/audio_player)
+[![pub package](https://img.shields.io/badge/pub-v1.0.1-blue.svg)](https://github.com/SunnatilloShavkatov/audio_player)
 [![license](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20macos-lightgrey.svg)](https://github.com/SunnatilloShavkatov/audio_player)
 
@@ -25,11 +25,11 @@ A feature-rich, high-performance audio player plugin for Flutter. Play, loop, cl
 
 - 🎵 **Any Source**: Remote URLs, local device files, app assets, and custom byte streams (`StreamAudioSource`).
 - 🔁 **Gapless Playlists**: Smooth, uninterrupted track transitions with dynamic queue management (add, remove, move).
-- 🎚️ **Precision Controls**: Full control over volume, speed, pitch, seeking, looping, and shuffling.
+- 🎚️ **Precision Controls**: Full control over volume, speed, seeking, looping, and shuffling. Pitch and silence skipping are Android only (accepted as no-ops on iOS/macOS).
 - ✂️ **Audio Clipping**: Play millisecond-precise segments of any track without modifying files.
 - ⚡ **Caching**: Stream remote audio while caching to disk for offline playback (`LockCachingAudioSource`).
 - 📻 **Streaming Protocols**: Native support for HLS (`.m3u8`), DASH (`.mpd`), and ICY radio metadata.
-- 🎛️ **Audio Effects**: Built-in 5-band equalizer & loudness enhancer on Android.
+- 🎛️ **Audio Effects**: Equalizer (band count depends on the device) & loudness enhancer on Android.
 - 📡 **Reactive Architecture**: RxDart streams for playback state, position, buffer, and duration.
 
 ---
@@ -46,7 +46,7 @@ Or add it to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  audio_player: ^1.0.0
+  audio_player: ^1.0.1
 ```
 
 ---
@@ -69,23 +69,28 @@ dependencies:
 
 ### iOS
 
-To allow HTTP streaming or local proxy features, add App Transport Security to `ios/Runner/Info.plist`:
+The local proxy (used for request headers, a custom user agent and `StreamAudioSource`) serves audio over
+cleartext HTTP on `127.0.0.1`. Allow that in `ios/Runner/Info.plist`:
 
 ```xml
 <key>NSAppTransportSecurity</key>
 <dict>
-    <key>NSAllowsArbitraryLoads</key>
+    <key>NSAllowsLocalNetworking</key>
     <true/>
 </dict>
 ```
 
+Only if you also stream from remote `http://` (not `https://`) URLs, add `NSAllowsArbitraryLoads` (or, better, an
+`NSExceptionDomains` entry for those hosts).
+
 ### macOS
 
-1. Add App Transport Security to `macos/Runner/Info.plist`:
+1. Add App Transport Security to `macos/Runner/Info.plist` (see the iOS notes above for when
+   `NSAllowsArbitraryLoads` is needed):
    ```xml
    <key>NSAppTransportSecurity</key>
    <dict>
-       <key>NSAllowsArbitraryLoads</key>
+       <key>NSAllowsLocalNetworking</key>
        <true/>
    </dict>
    ```
@@ -95,6 +100,14 @@ To allow HTTP streaming or local proxy features, add App Transport Security to `
    <key>com.apple.security.network.client</key>
    <true/>
    ```
+
+### Background playback
+
+This plugin plays audio but does not keep your app alive in the background or show media controls.
+
+- **iOS:** add `audio` to `UIBackgroundModes` in `ios/Runner/Info.plist`.
+- **Android:** run playback from a foreground service with a media session (for example via a package such as
+  `audio_service`); otherwise the system may stop playback once the app is in the background.
 
 ---
 

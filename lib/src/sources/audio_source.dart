@@ -172,11 +172,20 @@ abstract class UriAudioSource extends IndexedAudioSource {
       // For non-web platforms, extract the asset into a cache file and pass
       // that to the player.
       final file = await _getCacheFile(assetPath);
-      // Not technically inter-isolate-safe, although low risk. Could consider
-      // locking the file or creating a separate lock file.
       if (!file.existsSync()) {
-        file.createSync(recursive: true);
-        await file.writeAsBytes((await rootBundle.load(assetPath)).buffer.asUint8List());
+        // Write to a unique temporary file and rename it into place, so that an
+        // interrupted write or a concurrent load never exposes a partial file.
+        final tempFile = File('${file.path}.${_generateUuidV4()}.tmp');
+        try {
+          await tempFile.create(recursive: true);
+          await tempFile.writeAsBytes((await rootBundle.load(assetPath)).buffer.asUint8List(), flush: true);
+          await tempFile.rename(file.path);
+        } catch (e) {
+          if (tempFile.existsSync()) {
+            await tempFile.delete();
+          }
+          rethrow;
+        }
       }
       return Uri.file(file.path);
     }

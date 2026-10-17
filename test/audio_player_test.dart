@@ -409,6 +409,64 @@ void runTests() {
     await player.dispose();
   });
 
+  test('proxy rejects unknown paths and methods', () async {
+    final server = MockWebServer();
+    await server.start();
+    final player = AudioPlayer();
+    final uri = Uri.parse('http://${InternetAddress.loopbackIPv4.address}:${server.port}/proxy/foo.mp3');
+    await player.setUrl('$uri', headers: {'custom-header': 'Hello'});
+    final proxyUri = Uri.parse(player.icyMetadata!.info!.url!);
+    final client = HttpClient();
+    final unknown = await (await client.getUrl(proxyUri.replace(path: '/unknown.mp3'))).close();
+    await unknown.drain<void>();
+    expect(unknown.statusCode, equals(HttpStatus.notFound));
+    final post = await (await client.postUrl(proxyUri)).close();
+    await post.drain<void>();
+    expect(post.statusCode, equals(HttpStatus.methodNotAllowed));
+    // The server keeps serving registered paths afterwards.
+    final ok = await (await client.getUrl(proxyUri)).close();
+    expect(await ok.transform(utf8.decoder).join(), equals('Hello'));
+    client.close();
+    await server.stop();
+    await player.dispose();
+  });
+
+  test('play completes on pause when the playlist is empty', () async {
+    final player = AudioPlayer();
+    var completed = false;
+    unawaited(player.play().then((_) => completed = true));
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    expect(player.playing, isTrue);
+    expect(completed, isFalse);
+    await player.pause();
+    await Future<void>.delayed(Duration.zero);
+    expect(completed, isTrue);
+    await player.dispose();
+  });
+
+  test('invalid speed, pitch and volume are rejected', () async {
+    final player = AudioPlayer();
+    await player.setUrl('https://foo.foo/foo.mp3');
+    expect(() => player.setSpeed(0), throwsArgumentError);
+    expect(() => player.setPitch(-1), throwsArgumentError);
+    expect(() => player.setVolume(-0.1), throwsArgumentError);
+    expect(player.speed, equals(1.0));
+    expect(player.pitch, equals(1.0));
+    expect(player.volume, equals(1.0));
+    await player.dispose();
+  });
+
+  test('positionStream can be listened to again after cancel', () async {
+    final player = AudioPlayer();
+    await player.setUrl('https://foo.foo/foo.mp3');
+    final stream = player.positionStream;
+    for (var i = 0; i < 2; i++) {
+      final position = await stream.first;
+      expectDuration(position, Duration.zero);
+    }
+    await player.dispose();
+  });
+
   test('proxy0.9', () async {
     final server = MockWebServer();
     await server.start();

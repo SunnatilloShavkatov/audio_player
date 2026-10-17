@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "uz.plugin.audio_player"
-version = "1.0.0"
+version = "1.0.1"
 
 android {
     namespace = "uz.plugin.audio_player"
@@ -34,5 +34,4 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$exoplayerVersion")
     implementation("androidx.media3:media3-exoplayer-dash:$exoplayerVersion")
     implementation("androidx.media3:media3-exoplayer-hls:$exoplayerVersion")
-    implementation("androidx.media3:media3-exoplayer-smoothstreaming:$exoplayerVersion")
 }

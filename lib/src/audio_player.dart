@@ -39,10 +39,14 @@ AudioPlayerPlatform get _pluginPlatform {
     // Dispose of all existing players within this FlutterEngine. This helps to
     // shut down existing players on a hot restart. TODO: Remove this hack once
     // https://github.com/flutter/flutter/issues/10437 is implemented.
+    // Silently ignore if a platform doesn't support this method, whether it
+    // throws synchronously or the returned future fails.
     try {
-      unawaited(pluginPlatform.disposeAllPlayers(DisposeAllPlayersRequest()));
+      unawaited(
+        pluginPlatform.disposeAllPlayers(DisposeAllPlayersRequest()).then<void>((_) {}, onError: (Object _) {}),
+      );
     } catch (e) {
-      // Silently ignore if a platform doesn't support this method.
+      // See above.
     }
     _pluginPlatformCache = pluginPlatform;
   }
@@ -311,7 +315,6 @@ class AudioPlayer {
         }
       });
     }
-    unawaited(_removeOldAssetCacheDir());
   }
   static String _generateId() => _generateUuidV4();
   final _lock = Lock(reentrant: true);
@@ -424,8 +427,8 @@ class AudioPlayer {
 
   var _seeking = false;
 
-  // Lives as long as the position stream it pipes (see createPositionStream).
-  // ignore: close_sinks
+  // The current listening session of positionStream, if any. Closed when its
+  // last listener leaves, or in dispose.
   BehaviorSubject<Duration>? _positionSubject;
   bool _automaticallyWaitsToMinimizeStalling = true;
   bool _canUseNetworkResourcesForLiveStreamingWhilePaused = false;
@@ -441,31 +444,6 @@ class AudioPlayer {
 
   /// Counts how many times [_setPlatformActive] is called.
   int _activationCount = 0;
-
-  /// Old versions of audio_player used an asset caching system that created a
-  /// separate cache file per asset per player instance, and was highly
-  /// dependent on the app calling [dispose] to clean up afterwards. If the app
-  /// is upgrading from an old version of audio_player, this will delete the old
-  /// cache directory.
-  Future<void> _removeOldAssetCacheDir() async {
-    if (kIsWeb) {
-      return;
-    }
-    try {
-      final oldAssetCacheDir = Directory(p.join((await getTemporaryDirectory()).path, 'audio_player_asset_cache'));
-      if (oldAssetCacheDir.existsSync()) {
-        try {
-          oldAssetCacheDir.deleteSync(recursive: true);
-        } catch (e) {
-          // Best-effort cleanup; there is no logger to report this failure to.
-          // ignore: avoid_print
-          print('Failed to delete old asset cache dir: $e');
-        }
-      }
-    } catch (e) {
-      // There is no temporary directory for this platform.
-    }
-  }
 
   /// The first [AudioSource] in the playlist, if any.
   AudioSource? get audioSource => _playlist.children.firstOrNull;
@@ -686,14 +664,42 @@ class AudioPlayer {
   /// every 16ms and no slower than once every 200ms.
   ///
   /// See [createPositionStream] for more control over the stream parameters.
-  Stream<Duration> get positionStream {
-    if (_positionSubject == null) {
-      _positionSubject = BehaviorSubject<Duration>(onCancel: () => _positionSubject = null);
-      if (!_disposed) {
-        unawaited(_positionSubject!.addStream(createPositionStream(minPeriod: const Duration(milliseconds: 16))));
-      }
+  Stream<Duration> get positionStream => _positionStream;
+
+  // Each listening session gets a fresh subject (see _positionSessionSubject),
+  // so a returning listener does not first see a stale position.
+  late final Stream<Duration> _positionStream = Rx.defer(() => _positionSessionSubject().stream, reusable: true);
+
+  /// The subject shared by the current listeners of [positionStream]. It pulls
+  /// positions only while it has listeners and is closed when the last one
+  /// leaves, so an unused stream does not keep a timer running.
+  BehaviorSubject<Duration> _positionSessionSubject() {
+    final existing = _positionSubject;
+    if (existing != null) {
+      return existing;
     }
-    return _positionSubject!.stream;
+    // Cancelled in onCancel below.
+    // ignore: cancel_subscriptions
+    StreamSubscription<Duration>? sourceSubscription;
+    late final BehaviorSubject<Duration> subject;
+    return subject = _positionSubject = BehaviorSubject<Duration>(
+      onListen: () {
+        if (_disposed) {
+          return;
+        }
+        sourceSubscription = createPositionStream(minPeriod: const Duration(milliseconds: 16))
+            .listen(subject.add, onError: subject.addError);
+      },
+      onCancel: () async {
+        if (identical(_positionSubject, subject)) {
+          _positionSubject = null;
+        }
+        final subscription = sourceSubscription;
+        sourceSubscription = null;
+        await subscription?.cancel();
+        await subject.close();
+      },
+    );
   }
 
   /// Creates a new stream periodically tracking the current position of this
@@ -737,7 +743,6 @@ class AudioPlayer {
         timer.cancel();
         unawaited(playerEventSubscription?.cancel());
         if (!controller.isClosed) {
-          // This will in turn close _positionSubject.
           unawaited(controller.close());
         }
         return;
@@ -747,13 +752,25 @@ class AudioPlayer {
       }
     }
 
-    playerEventSubscription = playerEventStream.listen((event) {
-      controller.add(position);
-      currentTimer?.cancel();
-      if (playing) {
-        currentTimer = Timer.periodic(step(), yieldPosition);
+    // The timer and the player event subscription only exist while the stream
+    // has listeners, so an abandoned stream does not keep running until dispose.
+    controller
+      ..onListen = () {
+        playerEventSubscription = playerEventStream.listen((event) {
+          controller.add(position);
+          currentTimer?.cancel();
+          if (playing) {
+            currentTimer = Timer.periodic(step(), yieldPosition);
+          }
+        });
       }
-    });
+      ..onCancel = () async {
+        currentTimer?.cancel();
+        currentTimer = null;
+        final subscription = playerEventSubscription;
+        playerEventSubscription = null;
+        await subscription?.cancel();
+      };
     return controller.stream.distinct();
   }
 
@@ -882,15 +899,22 @@ class AudioPlayer {
       shuffleOrder: shuffleOrder ?? DefaultShuffleOrder(),
     );
     await _playlist._init(audioSources, loadRequest.shuffleOrder);
-    loadRequest.checkInterruption();
-    Duration? duration;
-    if (preload || playing) {
-      duration = await load();
-    } else {
-      await _setPlatformActive(false)?.catchError((_) => null);
+    try {
+      loadRequest.checkInterruption();
+      Duration? duration;
+      if (preload || playing) {
+        duration = await load();
+      } else {
+        await _setPlatformActive(false)?.catchError((_) => null);
+      }
+      loadRequest.checkInterruption();
+      return duration;
+    } finally {
+      // The previous playlist has been replaced on the platform side by now.
+      if (!_disposed) {
+        _unregisterDetachedAudioSources();
+      }
     }
-    loadRequest.checkInterruption();
-    return duration;
   }
 
   /// Starts loading the playlist and returns the audio duration of the initial
@@ -968,6 +992,32 @@ class AudioPlayer {
 
   void _registerAudioSource(AudioSource source) {
     _audioSources[source._id] = source;
+  }
+
+  /// Forgets sources that are no longer anywhere in the playlist, so that a
+  /// long-lived player does not keep every source it ever played alive. Call
+  /// this only after the platform has been told about the removal.
+  void _unregisterDetachedAudioSources() {
+    final attachedIds = <String>{};
+    void collect(AudioSource source) {
+      attachedIds.add(source._id);
+      if (source is _PlaylistAudioSource) {
+        source.children.forEach(collect);
+      } else if (source is ClippingAudioSource) {
+        collect(source.child);
+      }
+    }
+
+    collect(_playlist);
+    _audioSources.removeWhere((id, source) {
+      if (attachedIds.contains(id)) {
+        return false;
+      }
+      if (source is StreamAudioSource && !kIsWeb) {
+        _proxy.removeStreamAudioSource(source);
+      }
+      return true;
+    });
   }
 
   Future<Duration?> _load(
@@ -1098,10 +1148,19 @@ class AudioPlayer {
           // implicitly restore the playing state and send a play request.
           unawaited(_setPlatformActive(true, playCompleter: playCompleter)?.catchError((_) => null));
         }
+      } else {
+        // There is nothing to play yet. A later load starts playback, so this
+        // completes once playing is turned off (or the player is disposed).
+        unawaited(
+          _playerEventSubject.stream
+              .firstWhere((event) => !event.playing)
+              .then<void>((_) => playCompleter.complete(), onError: (Object _) => playCompleter.complete()),
+        );
       }
     } else {
       // Revert if we fail to activate the audio session.
       _playerEventSubject.add(playerEvent.copyWith(playing: false));
+      return;
     }
     await playCompleter.future;
   }
@@ -1162,7 +1221,12 @@ class AudioPlayer {
   }
 
   /// Sets the volume of this player, where 1.0 is normal volume.
+  ///
+  /// Throws an [ArgumentError] if [volume] is negative.
   Future<void> setVolume(double volume) async {
+    if (volume.isNaN || volume < 0) {
+      throw ArgumentError.value(volume, 'volume', 'must not be negative');
+    }
     if (_disposed) {
       return;
     }
@@ -1193,7 +1257,12 @@ class AudioPlayer {
   /// normal speed. Note that values in excess of 1.0 may result in stalls if
   /// the playback speed is faster than the player is able to downloaded the
   /// audio.
+  ///
+  /// Throws an [ArgumentError] if [speed] is not greater than 0.
   Future<void> setSpeed(double speed) async {
+    if (speed.isNaN || speed <= 0) {
+      throw ArgumentError.value(speed, 'speed', 'must be greater than 0');
+    }
     if (_disposed) {
       return;
     }
@@ -1206,8 +1275,14 @@ class AudioPlayer {
     await (await _platform).setSpeed(SetSpeedRequest(speed: speed));
   }
 
-  /// Sets the factor by which pitch will be shifted.
+  /// Sets the factor by which pitch will be shifted. (Currently Android only;
+  /// on iOS and macOS the call is accepted but has no audible effect.)
+  ///
+  /// Throws an [ArgumentError] if [pitch] is not greater than 0.
   Future<void> setPitch(double pitch) async {
+    if (pitch.isNaN || pitch <= 0) {
+      throw ArgumentError.value(pitch, 'pitch', 'must be greater than 0');
+    }
     if (_disposed) {
       return;
     }
@@ -1216,8 +1291,14 @@ class AudioPlayer {
         playbackEvent: playbackEvent.copyWith(updatePosition: position, updateTime: DateTime.now()),
       ),
     );
+    final previousPitch = this.pitch;
     _pitchSubject.add(pitch);
-    await (await _platform).setPitch(SetPitchRequest(pitch: pitch));
+    try {
+      await (await _platform).setPitch(SetPitchRequest(pitch: pitch));
+    } catch (e) {
+      _pitchSubject.add(previousPitch);
+      rethrow;
+    }
   }
 
   /// Sets the [LoopMode]. Looping will be gapless on Android, iOS and macOS. On
@@ -1474,7 +1555,7 @@ class AudioPlayer {
     await _currentIndexSubject.close();
     await _loopModeSubject.close();
     await _shuffleModeEnabledSubject.close();
-    await _shuffleModeEnabledSubject.close();
+    await _positionSubject?.close();
   });
 
   /// Switches to using the native platform when [active] is `true` and using the

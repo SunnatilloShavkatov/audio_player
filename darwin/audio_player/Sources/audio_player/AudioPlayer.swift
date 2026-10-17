@@ -27,6 +27,7 @@ private enum PlayerError: Error {
     case invalidSource
     case unknownSourceType
     case invalidIndex
+    case invalidArgument
 }
 
 // TODO: Check for and report invalid state transitions.
@@ -69,7 +70,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     // Items whose KVO and notification observers are currently registered.
     private let observedItems = NSHashTable<AVPlayerItem>.weakObjects()
 
-    init(registrar: FlutterPluginRegistrar, playerId: String, loadConfiguration: [String: Any]?, useLazyPreparation: Bool) {
+    init(registrar: FlutterPluginRegistrar, playerId: String, loadConfiguration: [String: Any]?) {
         self.playerId = playerId
         let messenger = registrar.binaryMessenger
         methodChannel = FlutterMethodChannel(name: "uz.plugin.audio_player.methods.\(playerId)", binaryMessenger: messenger)
@@ -109,13 +110,17 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
                 pause()
                 result(empty)
             case "setVolume":
-                setVolume(Float((request["volume"] as? NSNumber)?.doubleValue ?? 0))
+                guard let volume = (request["volume"] as? NSNumber)?.floatValue else { throw PlayerError.invalidArgument }
+                setVolume(volume)
                 result(empty)
-            case "setSkipSilence":
-                // TODO on iOS side; Seems more involved.
+            case "setSkipSilence", "setPitch":
+                // Not supported by AVPlayer; accepted as a no-op so the call does not fail on iOS/macOS.
                 result(empty)
             case "setSpeed":
-                setSpeed(Float((request["speed"] as? NSNumber)?.doubleValue ?? 0))
+                guard let speed = (request["speed"] as? NSNumber)?.floatValue, speed > 0 else {
+                    throw PlayerError.invalidArgument
+                }
+                setSpeed(speed)
                 result(empty)
             case "setLoopMode":
                 setLoopMode((request["loopMode"] as? NSNumber)?.intValue ?? 0)
@@ -355,7 +360,10 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         if processingState == .idle || processingState == .loading {
             return -1
         } else if let source = currentSource {
-            return Self.milliseconds(of: source.duration)
+            let duration = source.duration
+            // Live streams (and items still loading) have an indefinite duration, reported as unknown.
+            guard duration.isNumeric else { return -1 }
+            return Self.milliseconds(of: duration)
         } else {
             return 0
         }
@@ -564,12 +572,49 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         updateTime = Self.nowMilliseconds()
     }
 
+    /// Decodes the source passed to `load`, reusing the previously loaded child when only the clip changes.
+    private func decodeLoadSource(_ source: [String: Any]) throws -> AudioSource {
+        guard let previousSource = audioSource, source["type"] as? String == "clipping" else {
+            return try decodeAudioSource(source)
+        }
+        // Check if we're clipping an audio source that was previously loaded.
+        var child: UriAudioSource?
+        if let clipper = previousSource as? ClippingAudioSource {
+            child = clipper.audioSource
+        } else if let uriSource = previousSource as? UriAudioSource {
+            child = uriSource
+        }
+        let childData = source["child"] as? [String: Any]
+        var uri: String?
+        if let type = childData?["type"] as? String, ["progressive", "dash", "hls"].contains(type) {
+            uri = childData?["uri"] as? String
+        }
+        guard let child, let uri, child.uri == uri, let id = source["id"] as? String else {
+            return try decodeAudioSource(source)
+        }
+        let clipper = ClippingAudioSource(
+            id: id,
+            audioSource: child,
+            start: (source["start"] as? NSNumber)?.int64Value,
+            end: (source["end"] as? NSNumber)?.int64Value
+        )
+        clipper.playerItem?.audioSource = clipper
+        clipper.playerItem2?.audioSource = clipper
+        return clipper
+    }
+
     private func load(_ source: [String: Any], initialPosition: CMTime, initialIndex: Int?, result: @escaping FlutterResult) throws {
+        // Decode before touching any state so that an invalid source leaves the current one intact.
+        let newAudioSource = try decodeLoadSource(source)
         if playing {
             player?.pause()
         }
         if processingState == .loading {
             abortExistingConnection(switchToIdle: false)
+        }
+        if let previousLoadResult = loadResult {
+            // The previous load was superseded before its item became ready.
+            previousLoadResult(FlutterError(code: "\(errorAbort)", message: "Connection aborted", details: nil))
         }
         loadResult = result
         processingState = .loading
@@ -581,36 +626,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
             removeItemObservers(indexedSource.playerItem)
             removeItemObservers(indexedSource.playerItem2)
         }
-        // Decode audio source
-        if let previousSource = audioSource, source["type"] as? String == "clipping" {
-            // Check if we're clipping an audio source that was previously loaded.
-            var child: UriAudioSource?
-            if let clipper = previousSource as? ClippingAudioSource {
-                child = clipper.audioSource
-            } else if let uriSource = previousSource as? UriAudioSource {
-                child = uriSource
-            }
-            let childData = source["child"] as? [String: Any]
-            var uri: String?
-            if let type = childData?["type"] as? String, ["progressive", "dash", "hls"].contains(type) {
-                uri = childData?["uri"] as? String
-            }
-            if let child, let uri, child.uri == uri, let id = source["id"] as? String {
-                let clipper = ClippingAudioSource(
-                    id: id,
-                    audioSource: child,
-                    start: (source["start"] as? NSNumber)?.int64Value,
-                    end: (source["end"] as? NSNumber)?.int64Value
-                )
-                clipper.playerItem?.audioSource = clipper
-                clipper.playerItem2?.audioSource = clipper
-                audioSource = clipper
-            } else {
-                audioSource = try decodeAudioSource(source)
-            }
-        } else {
-            audioSource = try decodeAudioSource(source)
-        }
+        audioSource = newAudioSource
         indexedAudioSources = []
         audioSource?.buildSequence(&indexedAudioSources, treeIndex: 0)
         for indexedSource in indexedAudioSources {
@@ -1095,32 +1111,36 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     // MARK: - Disposal
 
     func dispose(calledFromDeinit: Bool) {
-        guard let player else { return }
-        if processingState != .idle {
-            player.pause()
-
-            updatePosition()
-            if !calledFromDeinit {
-                broadcastPlaybackEvent()
+        // The player is only created by the first successful load, but the channels exist from init and must be
+        // released either way.
+        if let player {
+            if processingState != .idle {
+                player.pause()
+                updatePosition()
+                // If used just before destroying the current FlutterEngine, sending results in:
+                // NSInternalInconsistencyException: 'Sending a message before the FlutterEngine has been run.'
+                if !calledFromDeinit {
+                    broadcastPlaybackEvent()
+                }
+                processingState = .idle
             }
-            if let playResult {
-                playResult([String: Any]())
-                self.playResult = nil
-            }
-
-            processingState = .idle
-            // If used just before destroying the current FlutterEngine, this will result in:
-            // NSInternalInconsistencyException: 'Sending a message before the FlutterEngine has been run.'
+            player.removeObserver(self, forKeyPath: "currentItem")
+            player.removeObserver(self, forKeyPath: "timeControlStatus")
+            self.player = nil
         }
+        // Replying to a pending call also goes through the messenger.
+        if !calledFromDeinit {
+            playResult?([String: Any]())
+            loadResult?(FlutterError(code: "\(errorAbort)", message: "Connection aborted", details: nil))
+        }
+        playResult = nil
+        loadResult = nil
         for source in indexedAudioSources {
             removeItemObservers(source.playerItem)
             removeItemObservers(source.playerItem2)
         }
         indexedAudioSources = []
         audioSource = nil
-        player.removeObserver(self, forKeyPath: "currentItem")
-        player.removeObserver(self, forKeyPath: "timeControlStatus")
-        self.player = nil
         eventChannel.dispose(calledFromDeinit: calledFromDeinit)
         dataEventChannel.dispose(calledFromDeinit: calledFromDeinit)
         if !calledFromDeinit {

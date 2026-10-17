@@ -2,15 +2,18 @@ part of '../audio_player.dart';
 
 /// A local proxy HTTP server for making remote GET requests with headers.
 class _ProxyHttpServer {
-  late HttpServer _server;
-  bool _running = false;
+  HttpServer? _server;
+
+  /// Completes with the bound server. Reset when the server stops so that the
+  /// next [ensureRunning] starts a new one.
+  Future<HttpServer>? _starting;
 
   /// Maps request keys to [_ProxyHandler]s.
   final Map<String, _ProxyHandler> _handlerMap = {};
 
   /// The port this server is bound to on localhost. This is set only after
   /// [start] has completed.
-  int get port => _server.port;
+  int get port => _server!.port;
 
   /// Registers a [UriAudioSource] to be served through this proxy. This may be
   /// called only after [start] has completed.
@@ -28,58 +31,104 @@ class _ProxyHttpServer {
   /// Registers a [StreamAudioSource] to be served through this proxy. This may
   /// be called only after [start] has completed.
   Uri addStreamAudioSource(StreamAudioSource source) {
-    final uri = _sourceUri(source);
-    final path = _requestKey(uri);
-    _handlerMap[path] = _proxyHandlerForSource(source);
-    return uri;
+    _handlerMap[_streamSourceKey(source)] = _proxyHandlerForSource(source);
+    return Uri.http('${InternetAddress.loopbackIPv4.address}:$port', _streamSourcePath(source));
   }
 
-  Uri _sourceUri(StreamAudioSource source) =>
-      Uri.http('${InternetAddress.loopbackIPv4.address}:$port', '/id/${source._id}');
+  /// Stops serving [source], releasing the handler that references it.
+  void removeStreamAudioSource(StreamAudioSource source) {
+    _handlerMap.remove(_streamSourceKey(source));
+  }
+
+  String _streamSourcePath(StreamAudioSource source) => '/id/${source._id}';
+
+  String _streamSourceKey(StreamAudioSource source) => _requestKey(Uri(path: _streamSourcePath(source)));
 
   /// A unique key for each request that can be processed by this proxy,
   /// made up of the URL path and query string. It is not possible to
   /// simultaneously track requests that have the same URL path and query
-  /// but differ in other respects such as the port or headers.
+  /// but differ in other respects such as the host, port or headers.
   String _requestKey(Uri uri) => '${uri.path}?${uri.query}';
 
-  /// Starts the server if it is not already running.
-  Future<dynamic> ensureRunning() async {
-    if (_running) {
-      return;
-    }
-    return await start();
-  }
+  /// Starts the server if it is not already running. Concurrent callers share
+  /// the same start.
+  Future<void> ensureRunning() => _starting ??= _bind();
 
   /// Starts the server.
-  Future<dynamic> start() async {
-    _running = true;
-    _server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
-    _server.listen(
-      (request) {
-        if (request.method == 'GET') {
-          final uriPath = _requestKey(request.uri);
-          final handler = _handlerMap[uriPath]!;
-          handler(this, request);
-        }
-      },
-      onDone: () {
-        _running = false;
-      },
+  Future<void> start() => ensureRunning();
+
+  Future<HttpServer> _bind() async {
+    final HttpServer server;
+    try {
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    } catch (e) {
+      // Allow a later call to retry.
+      _starting = null;
+      rethrow;
+    }
+    _server = server;
+    server.listen(
+      _handleRequest,
+      onDone: () => _onServerClosed(server),
       onError: (Object e, StackTrace st) {
-        _running = false;
+        _onServerClosed(server);
       },
+    );
+    return server;
+  }
+
+  void _onServerClosed(HttpServer server) {
+    if (identical(_server, server)) {
+      _server = null;
+      _starting = null;
+    }
+  }
+
+  void _handleRequest(HttpRequest request) {
+    final isGet = request.method == 'GET';
+    final handler = isGet ? _handlerMap[_requestKey(request.uri)] : null;
+    if (handler == null) {
+      // Unknown paths and other methods (this server is reachable by any local
+      // process) must not leave the request hanging or throw.
+      _closeWithStatus(request, isGet ? HttpStatus.notFound : HttpStatus.methodNotAllowed);
+      return;
+    }
+    unawaited(
+      handler(this, request).catchError((Object e, StackTrace st) {
+        _closeWithStatus(request, HttpStatus.badGateway);
+      }),
     );
   }
 
   /// Stops the server
-  Future<dynamic> stop() async {
-    if (!_running) {
+  Future<void> stop() async {
+    final starting = _starting;
+    if (starting == null) {
       return;
     }
-    _running = false;
-    return await _server.close();
+    _starting = null;
+    final HttpServer server;
+    try {
+      server = await starting;
+    } catch (e) {
+      return;
+    }
+    if (identical(_server, server)) {
+      _server = null;
+    }
+    await server.close();
   }
+}
+
+/// Best-effort error response; does nothing beyond closing if the headers were
+/// already sent or the client has gone away.
+void _closeWithStatus(HttpRequest request, int statusCode) {
+  try {
+    request.response.statusCode = statusCode;
+  } catch (e) {
+    // Headers were already sent.
+  }
+  unawaited(request.response.close().then<void>((_) {}, onError: (Object _) {}));
 }
 
 /// Encapsulates the start and end of an HTTP range request.
@@ -137,7 +186,7 @@ class _HttpRangeResponse {
 }
 
 /// The type of functions that can handle HTTP requests sent to the proxy.
-typedef _ProxyHandler = void Function(_ProxyHttpServer server, HttpRequest request);
+typedef _ProxyHandler = Future<void> Function(_ProxyHttpServer server, HttpRequest request);
 
 /// A proxy handler for serving audio from a [StreamAudioSource].
 _ProxyHandler _proxyHandlerForSource(StreamAudioSource source) {
@@ -183,11 +232,20 @@ _ProxyHandler _proxyHandlerForSource(StreamAudioSource source) {
     }
 
     final completer = Completer<void>();
-    final subscription = stream.listen(request.response.add, onError: (e, st) {}, onDone: completer.complete);
+    void finish() {
+      if (!completer.isCompleted) {
+        completer.complete();
+      }
+    }
 
+    final subscription = stream.listen(request.response.add, onError: (Object e, StackTrace st) {}, onDone: finish);
+
+    // The player closes the connection early whenever it seeks; stop reading
+    // the source and let this handler finish instead of waiting forever.
     unawaited(
-      request.response.done.then((value) {
-        unawaited(subscription.cancel());
+      request.response.done.then<void>((_) {}, onError: (Object _) {}).whenComplete(() async {
+        await subscription.cancel();
+        finish();
       }),
     );
 
@@ -198,6 +256,9 @@ _ProxyHandler _proxyHandlerForSource(StreamAudioSource source) {
 
   return handler;
 }
+
+/// Content types that identify an HLS playlist, compared in lower case.
+const _m3u8MimeTypes = {'application/x-mpegurl', 'application/vnd.apple.mpegurl', 'audio/mpegurl', 'audio/x-mpegurl'};
 
 /// A proxy handler for serving audio from a URI with optional headers.
 _ProxyHandler _proxyHandlerForUri(Uri uri, {Map<String, String>? headers, String? userAgent}) {
@@ -227,11 +288,8 @@ _ProxyHandler _proxyHandlerForUri(Uri uri, {Map<String, String>? headers, String
       request.response.statusCode = originResponse.statusCode;
 
       // Send response
-      if (headers != null && request.uri.path.toLowerCase().endsWith('.m3u8') ||
-          [
-            'application/x-mpegURL',
-            'application/vnd.apple.mpegurl',
-          ].contains(request.headers.value(HttpHeaders.contentTypeHeader))) {
+      final contentType = originResponse.headers.contentType?.mimeType.toLowerCase();
+      if (request.uri.path.toLowerCase().endsWith('.m3u8') || _m3u8MimeTypes.contains(contentType)) {
         // If this is an m3u8 file with headers, prepare the nested URIs.
         // TODO(SunnatilloShavkatov): Handle other playlist formats similarly?
         final m3u8 = await originResponse.transform(utf8.decoder).join();
@@ -256,11 +314,16 @@ _ProxyHandler _proxyHandlerForUri(Uri uri, {Map<String, String>? headers, String
             // ignore malformed lines
           }
         }
-        request.response.add(utf8.encode(m3u8));
+        final body = utf8.encode(m3u8);
+        // The body is decoded and re-encoded as plain text, so the origin's
+        // length and encoding may no longer match.
+        request.response.headers.removeAll(HttpHeaders.contentEncodingHeader);
+        request.response.contentLength = body.length;
+        request.response.add(body);
       } else {
         request.response.bufferOutput = false;
         var done = false;
-        unawaited(request.response.done.then((_) => done = true));
+        unawaited(request.response.done.then<void>((_) => done = true, onError: (Object _) => done = true));
         await for (final chunk in originResponse) {
           if (done) {
             break;
@@ -304,7 +367,12 @@ _ProxyHandler _proxyHandlerForUri(Uri uri, {Map<String, String>? headers, String
         socket.write('\n');
         await socket.flush();
         await done.future;
+      } else {
+        rethrow;
       }
+    } finally {
+      // Lets an in-flight response finish, then frees the client's sockets.
+      client.close();
     }
   }
 

@@ -170,6 +170,7 @@ class _PlaylistAudioSource extends AudioSource {
           shuffleOrder: List.of(_shuffleOrder.indices),
         ),
       );
+      player._unregisterDetachedAudioSources();
     }
   });
 
@@ -189,6 +190,7 @@ class _PlaylistAudioSource extends AudioSource {
           shuffleOrder: List.of(_shuffleOrder.indices),
         ),
       );
+      player._unregisterDetachedAudioSources();
     }
   });
 
@@ -228,6 +230,7 @@ class _PlaylistAudioSource extends AudioSource {
           shuffleOrder: List.of(_shuffleOrder.indices),
         ),
       );
+      player._unregisterDetachedAudioSources();
     }
   });
 

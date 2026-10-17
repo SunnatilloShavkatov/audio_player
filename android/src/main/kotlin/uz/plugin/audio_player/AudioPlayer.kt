@@ -201,7 +201,14 @@ class AudioPlayer(
         audioSessionId?.let { sessionId ->
             for (rawAudioEffect in rawAudioEffects) {
                 val json = rawAudioEffect as Map<*, *>
-                val audioEffect = decodeAudioEffect(json, sessionId)
+                // Some devices do not provide an effect (or refuse it for this session); skip it rather than
+                // leaving the player half set up.
+                val audioEffect = try {
+                    decodeAudioEffect(json, sessionId)
+                } catch (e: RuntimeException) {
+                    Log.e(TAG, "Could not create audio effect ${json["type"]}", e)
+                    continue
+                }
                 if (json["enabled"] as Boolean) {
                     audioEffect.setEnabled(true)
                 }
@@ -368,8 +375,9 @@ class AudioPlayer(
                     Log.e(TAG, "TYPE_RENDERER: " + error.rendererException.message)
                 ExoPlaybackException.TYPE_UNEXPECTED ->
                     Log.e(TAG, "TYPE_UNEXPECTED: " + error.unexpectedException.message)
+                // unexpectedException may only be read for TYPE_UNEXPECTED.
                 else ->
-                    Log.e(TAG, "default ExoPlaybackException: " + error.unexpectedException.message)
+                    Log.e(TAG, "default ExoPlaybackException: " + error.message)
             }
             // TODO: send both errorCode and type
             sendError(error.type, error.message, mapOf("index" to currentIndex))
@@ -386,15 +394,19 @@ class AudioPlayer(
     }
 
     override fun onMethodCall(call: MethodCall, result: Result) {
-        ensurePlayerInitialized()
-
         try {
+            // Inside the try so a failure is reported to Dart and retried on the next call.
+            ensurePlayerInitialized()
             when (call.method) {
                 "load" -> {
                     val initialPosition = getLong(call.argument<Any>("initialPosition"))
                     val initialIndex = call.argument<Int>("initialIndex")
                     val audioSourceMap = call.argument<Map<*, *>>("audioSource")!!
                     val children = getAudioSources(audioSourceMap["children"])
+                    // Forget sources from earlier playlists that this one no longer uses.
+                    val usedIds = HashSet<String>()
+                    collectAudioSourceIds(audioSourceMap, usedIds)
+                    mediaSources.keys.retainAll(usedIds)
                     val shuffleOrder = decodeShuffleOrder(mapGet(audioSourceMap, "shuffleOrder")!!)
                     load(
                         children,
@@ -637,6 +649,13 @@ class AudioPlayer(
         }
     }
 
+    private fun collectAudioSourceIds(json: Any?, ids: MutableSet<String>) {
+        val map = json as? Map<*, *> ?: return
+        (map["id"] as? String)?.let { ids.add(it) }
+        (map["children"] as? List<*>)?.forEach { collectAudioSourceIds(it, ids) }
+        collectAudioSourceIds(map["child"], ids)
+    }
+
     private fun getAudioSources(json: Any?): List<MediaSource> {
         if (json !is List<*>) throw RuntimeException("List expected: $json")
         return json.map { getAudioSource(it) }
@@ -719,13 +738,14 @@ class AudioPlayer(
         loadControl?.let { builder.setLoadControl(it) }
         livePlaybackSpeedControl?.let { builder.setLivePlaybackSpeedControl(it) }
         val newPlayer = builder.build()
-        exoPlayer = newPlayer
         newPlayer.trackSelectionParameters = newPlayer.trackSelectionParameters
             .buildUpon()
             .setAudioOffloadPreferences(audioOffloadPreferences)
             .build()
-        updateAudioSessionId(newPlayer.audioSessionId)
+        // Listen before anything else can fail, so the player never ends up created but silent.
         newPlayer.addListener(this)
+        exoPlayer = newPlayer
+        updateAudioSessionId(newPlayer.audioSessionId)
     }
 
     private fun setAudioAttributes(contentType: Int, flags: Int, usage: Int) {
