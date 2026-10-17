@@ -2,6 +2,7 @@ part of 'audio_player.dart';
 
 class ProgressiveAudioSourceOptions {
   const new({this.androidExtractorOptions, this.darwinAssetOptions});
+
   final AndroidExtractorOptions? androidExtractorOptions;
   final DarwinAssetOptions? darwinAssetOptions;
 
@@ -13,6 +14,7 @@ class ProgressiveAudioSourceOptions {
 
 class DarwinAssetOptions {
   const new({this.preferPreciseDurationAndTiming = false});
+
   final bool preferPreciseDurationAndTiming;
 
   DarwinAssetOptionsMessage _toMessage() =>
@@ -25,6 +27,7 @@ class AndroidExtractorOptions {
     this.constantBitrateSeekingAlwaysEnabled = false,
     this.mp3Flags = 0,
   });
+
   static const flagMp3EnableIndexSeeking = 1 << 2;
   static const flagMp3DisableId3Metadata = 1 << 3;
 

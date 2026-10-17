@@ -105,6 +105,7 @@ abstract class AudioSource {
 /// An [AudioSource] that can appear in a sequence.
 abstract class IndexedAudioSource extends AudioSource {
   new({this.tag, this.duration});
+
   final dynamic tag;
   Duration? duration;
 
@@ -121,6 +122,7 @@ abstract class IndexedAudioSource extends AudioSource {
 /// An abstract class representing audio sources that are loaded from a URI.
 abstract class UriAudioSource extends IndexedAudioSource {
   new(this.uri, {this.headers, super.tag, super.duration});
+
   final Uri uri;
   final Map<String, String>? headers;
   Uri? _overrideUri;
@@ -211,6 +213,7 @@ abstract class UriAudioSource extends IndexedAudioSource {
 /// your device to forward HTTP requests with headers included.
 class ProgressiveAudioSource extends UriAudioSource {
   new(super.uri, {super.headers, super.tag, super.duration, this.options});
+
   final ProgressiveAudioSourceOptions? options;
 
   @override
@@ -270,6 +273,7 @@ class HlsAudioSource extends UriAudioSource {
 /// NOTE: This is currently supported on Android only.
 class SilenceAudioSource extends IndexedAudioSource {
   new({super.tag, required Duration super.duration});
+
   @override
   Duration get duration => super.duration!;
 

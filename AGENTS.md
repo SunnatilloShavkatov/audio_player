@@ -24,7 +24,7 @@ iOS and macOS share one Swift source set (`sharedDarwinSource: true`). Platform 
 - `lib/src/platform_interface/` — platform interface and the `MethodChannel` implementation.
 - `lib/src/internal/` — local proxy HTTP server, idle player, utils. Not public API.
 - `darwin/`, `android/` — native implementations.
-- `test/` — Dart unit tests (mockito). `example/` — demo app.
+- `test/` — Dart unit tests (mocktail). `example/` — demo app.
 
 Channel names: methods `uz.plugin.audio_player.methods`; per-player events
 `uz.plugin.audio_player.events.<playerId>`. Dart and both native sides must agree on them and on the message shape.

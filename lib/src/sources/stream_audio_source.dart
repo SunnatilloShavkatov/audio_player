@@ -5,6 +5,7 @@ part of '../audio_player.dart';
 @experimental
 abstract class StreamAudioSource extends IndexedAudioSource {
   new({super.tag});
+
   Uri? _uri;
 
   @override
@@ -83,6 +84,7 @@ class LockCachingAudioSource extends StreamAudioSource {
     : cacheFile = cacheFile != null ? Future.value(cacheFile) : _getCacheFile(uri) {
     unawaited(_init());
   }
+
   Future<HttpClientResponse>? _response;
   final Uri uri;
   final Map<String, String>? headers;
@@ -403,6 +405,7 @@ class LockCachingAudioSource extends StreamAudioSource {
 /// when to stop adding data.
 class _InProgressCacheResponse {
   new({required this.end});
+
   // NOTE: This isn't necessarily memory efficient. Since the entire audio file
   // will likely be downloaded at a faster rate than the rate at which the
   // player is consuming audio data, it is also likely that this buffered data

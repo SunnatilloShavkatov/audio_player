@@ -15,6 +15,7 @@ class SequenceState {
     required this.shuffleModeEnabled,
     required this.loopMode,
   });
+
   static const _defaultInt = -9999999;
 
   /// The current sequence of [IndexedAudioSource]s.

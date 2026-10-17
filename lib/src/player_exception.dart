@@ -24,6 +24,7 @@ class PlayerException implements Exception {
 /// (e.g. by another simultaneous operation).
 class PlayerInterruptedException implements Exception {
   new(this.message);
+
   final String? message;
 
   @override

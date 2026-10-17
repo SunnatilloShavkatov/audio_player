@@ -8,7 +8,7 @@ import 'package:audio_player/src/platform_interface/audio_player_platform_interf
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mockito/mockito.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 void main() {
@@ -1310,6 +1310,7 @@ void runTests() {
       expect(band.upperFrequency, equals((i + 1) * 1000));
       expect(band.centerFrequency, equals((i + 0.5) * 1000));
       expect(band.gain, equals(i * 0.1));
+      expect(await band.gainStream.first, equals(i * 0.1));
       final newGain = i * 0.2;
       await band.setGain(newGain);
       expect(band.gain, equals(newGain));

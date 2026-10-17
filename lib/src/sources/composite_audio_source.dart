@@ -294,6 +294,7 @@ class ClippingAudioSource extends IndexedAudioSource {
   /// where [start] and [end] default to the beginning and end of the original
   /// [child] source.
   new({required this.child, this.start, this.end, super.tag, super.duration});
+
   final UriAudioSource child;
   final Duration? start;
   final Duration? end;
