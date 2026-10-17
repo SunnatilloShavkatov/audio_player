@@ -1,71 +1,44 @@
 # AGENTS.md
 
-Guidance for AI coding agents working in this repository.
-
-## Project
-
-`audio_player` is a Flutter plugin for audio playback (gapless playlists, clipping, caching, HLS/DASH, effects).
-It is a port in the style of `just_audio`, published as `uz.plugin.audio_player`.
-
-| Platform | Engine                      | Source                                                        |
-|----------|-----------------------------|---------------------------------------------------------------|
-| Android  | AndroidX Media3 (ExoPlayer) | `android/src/main/kotlin/uz/plugin/audio_player/`             |
-| iOS      | AVFoundation / AVPlayer     | `darwin/audio_player/Sources/audio_player/`                   |
-| macOS    | AVFoundation / AVPlayer     | `darwin/audio_player/Sources/audio_player/` (shared with iOS) |
-
-iOS and macOS share one Swift source set (`sharedDarwinSource: true`). Platform differences are handled with
-`#if os(iOS)` / `#elseif os(macOS)`. A Swift change affects both; do not fix one and forget the other.
+`audio_player`: Flutter audio plugin (just_audio-style; gapless playlists, clipping, caching, HLS/DASH, effects),
+published as `uz.plugin.audio_player`.
 
 ## Layout
 
-- `lib/audio_player.dart` — public barrel export.
-- `lib/src/audio_player.dart` — the `AudioPlayer` class and its streams (RxDart).
-- `lib/src/sources/` — `AudioSource` types (URI, concatenating, clipping, looping, stream).
-- `lib/src/platform_interface/` — platform interface and the `MethodChannel` implementation.
-- `lib/src/internal/` — local proxy HTTP server, idle player, utils. Not public API.
-- `darwin/`, `android/` — native implementations.
-- `test/` — Dart unit tests (mocktail). `example/` — demo app.
-
-Channel names: methods `uz.plugin.audio_player.methods`; per-player events
-`uz.plugin.audio_player.events.<playerId>`. Dart and both native sides must agree on them and on the message shape.
+- `lib/src/audio_player.dart` — `AudioPlayer` + streams (RxDart); `lib/src/sources/` — `AudioSource` types;
+  `lib/src/platform_interface/` — platform interface + `MethodChannel` impl; `lib/src/internal/` — proxy server,
+  idle player (not public API). `lib/audio_player.dart` is the public barrel.
+- Android (Media3/ExoPlayer): `android/src/main/kotlin/uz/plugin/audio_player/`.
+- iOS + macOS (AVPlayer): one shared Swift set in `darwin/audio_player/Sources/audio_player/`
+  (`#if os(iOS)` / `#elseif os(macOS)`). A Swift change hits both platforms.
+- Tests: `test/` (mocktail). Demo app: `example/`.
+- Channels: methods `uz.plugin.audio_player.methods`, events `uz.plugin.audio_player.events.<playerId>`.
+  Dart, Swift and Kotlin must agree on names and message shape.
 
 ## Commands
 
 ```bash
-flutter pub get
-flutter analyze
-dart format --set-exit-if-changed .        # page width 120, see analysis_options.yaml
-flutter test                               # unit tests in test/
-cd example && flutter build ios --simulator --no-codesign   # compiles the Swift sources
-cd example && flutter build apk --debug                      # compiles the Kotlin sources
+flutter pub get && flutter analyze && flutter test
+dart format --set-exit-if-changed .                          # width 120
+cd example && flutter build ios --simulator --no-codesign    # compiles Swift
+cd example && flutter build apk --debug                      # compiles Kotlin
 ```
 
-Lints come from `package:analysis_lints`. Fix analyzer warnings in code you touch.
+## Rules
 
-## Conventions
+- Dart `>=3.13.0`, Flutter `>=3.47.0`. Lints: `package:analysis_lints`; fix warnings in code you touch.
+- Document public API with `///`. Public API, channel message or observable native behavior change → add
+  `CHANGELOG.md` entry; update `README.md` if usage changes.
+- Don't edit `build/`, `.dart_tool/`, `example/build/`, `*.g.dart`. Match surrounding style; no new dependencies
+  without reason.
+- Never `git commit` or push; leave changes in the working tree.
+- Before saying a change works: run analyze + test, and build the example for touched native platforms. If something
+  couldn't be run (no device/simulator), say so.
 
-- Dart SDK `>=3.13.0`, Flutter `>=3.47.0`. Keep the public API documented with `///` comments.
-- Changing a public Dart API, a channel message, or native behavior users can observe: add an entry to
-  `CHANGELOG.md` and update `README.md` if the usage changes.
-- Do not edit generated or build output (`build/`, `.dart_tool/`, `example/build/`, `*.g.dart`).
-- Match the surrounding code's style and comment density. Do not add dependencies without a reason.
+## Native lifecycle
 
-## Native lifecycle (important)
-
-- `AudioPlayerPlugin.deinit` runs while the `FlutterEngine` is being destroyed. Anything reached from it
-  (`AudioPlayer.dispose(calledFromDeinit: true)`, `BetterEventChannel.dispose`) must **not** send messages through the
-  messenger or touch channel handlers. Doing so throws `NSInternalInconsistencyException` ("Sending a message before the
-  FlutterEngine has been run") and aborts the app. Check `calledFromDeinit` before any send.
-- Explicit disposal from Dart (`disposePlayer`, `disposeAllPlayers`) may send the end-of-stream event and clear handlers.
-- Android has a mirror of this lifecycle in `AudioPlayer.kt` / `BetterEventChannel.kt`; keep both in sync when changing
-  event-channel behavior.
-
-## Verification
-
-Before saying a change works, run `flutter analyze` and `flutter test`. For native changes, build the example for the
-affected platform(s). If you could not run something (no device, simulator, or emulator), say so rather than implying
-it was verified.
-
-## Git
-
-Do not run `git commit`, and do not push. Leave changes in the working tree for the maintainer to review and commit.
+- `AudioPlayerPlugin.deinit` runs while the `FlutterEngine` is being destroyed. Code reached from it
+  (`AudioPlayer.dispose(calledFromDeinit: true)`, `BetterEventChannel.dispose`) must NOT send messages or touch channel
+  handlers — it throws `NSInternalInconsistencyException` and aborts the app. Check `calledFromDeinit` before any send.
+- Explicit Dart disposal (`disposePlayer`, `disposeAllPlayers`) may send end-of-stream and clear handlers.
+- Android mirrors this in `AudioPlayer.kt` / `BetterEventChannel.kt`; keep both in sync.
