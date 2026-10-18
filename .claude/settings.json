@@ -2,7 +2,23 @@
   "permissions": {
     "deny": [
       "Bash(git commit:*)",
-      "Bash(git * commit:*)"
+      "Bash(git * commit:*)",
+      "Bash(flutter build:*)",
+      "Bash(flutter * build:*)",
+      "Bash(fvm flutter build:*)",
+      "Bash(flutter run:*)",
+      "Bash(flutter drive:*)",
+      "Bash(flutter test integration_test:*)",
+      "Bash(flutter test * integration_test*)",
+      "Bash(xcodebuild:*)",
+      "Bash(xcrun simctl:*)",
+      "Bash(emulator:*)",
+      "Bash(gradle:*)",
+      "Bash(./gradlew:*)",
+      "Bash(android/gradlew:*)",
+      "Bash(example/android/gradlew:*)",
+      "mcp__Claude_Code_iOS_Simulator__build",
+      "mcp__Claude_Code_iOS_Simulator__control"
     ]
   }
 }

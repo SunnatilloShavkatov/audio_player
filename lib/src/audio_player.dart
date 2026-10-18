@@ -7,13 +7,13 @@ import 'package:audio_player/src/player_exception.dart';
 import 'package:audio_player/src/player_state.dart';
 import 'package:audio_player/src/sequence_state.dart';
 import 'package:audio_player/src/shuffle_order.dart';
-import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:synchronized/synchronized.dart';
 
+part 'audio_attributes.dart';
 part 'audio_effects.dart';
 part 'internal/idle_audio_player.dart';
 part 'internal/test_hooks.dart';
@@ -80,16 +80,25 @@ class AudioPlayer {
   /// Android, this uses ExoPlayer's `setUserAgent` and
   /// `setDefaultRequestProperties`.
   ///
-  /// The player will automatically pause/duck and resume/unduck when audio
-  /// interruptions occur (e.g. a phone call) or when headphones are unplugged.
-  /// If you wish to handle audio interruptions manually, set
-  /// [handleInterruptions] to `false` and interface directly with the audio
-  /// session via the [audio_session](https://pub.dev/packages/audio_session)
-  /// package. If you do not wish audio_player to automatically activate the audio
-  /// session when playing audio, set `handleAudioSessionActivation` to `false`.
-  /// If you do not want audio_player to respect the global
-  /// [AndroidAudioAttributes] configured by audio_session, set
-  /// [androidApplyAudioAttributes] to `false`.
+  /// The player automatically reacts to audio interruptions (e.g. a phone call)
+  /// and pauses when headphones are unplugged. On Android it requests the audio
+  /// focus while playing, ducks or pauses when another app takes it
+  /// temporarily (according to the [AndroidAudioAttributes] set with
+  /// `setAndroidAudioAttributes`), and resumes when the focus returns. When the
+  /// focus is lost for good, or headphones are unplugged, [playing] becomes
+  /// `false`. On iOS it pauses when the audio session is interrupted and
+  /// resumes when the system says it should. If you wish to handle audio
+  /// interruptions yourself, for example with another audio plugin, set
+  /// [handleInterruptions] to `false`: the player then neither requests the
+  /// audio focus nor observes interruptions or route changes.
+  ///
+  /// On iOS the player activates the shared `AVAudioSession` before it starts
+  /// playing, and first switches the `ambient` and `soloAmbient` categories
+  /// (which cannot play in the background or with the silent switch on) to
+  /// `playback`; any other category the app has set is left alone. If you
+  /// configure the audio session yourself, set `handleAudioSessionActivation`
+  /// to `false` and the player does not touch it. This has no effect on other
+  /// platforms.
   ///
   /// The default audio loading and buffering behaviour can be configured via
   /// the `audioLoadConfiguration` parameter.
@@ -109,8 +118,7 @@ class AudioPlayer {
   /// enabled on Android.
   new({
     this._userAgent,
-    bool handleInterruptions = true,
-    bool androidApplyAudioAttributes = true,
+    this._handleInterruptions = true,
     this._handleAudioSessionActivation = true,
     this._audioLoadConfiguration,
     AudioPipeline? audioPipeline,
@@ -119,7 +127,6 @@ class AudioPlayer {
     ShuffleOrder? shuffleOrder,
     int maxSkipsOnError = 0,
   }) : _id = _generateId(),
-       _androidApplyAudioAttributes = androidApplyAudioAttributes && _isAndroid(),
        _audioPipeline = audioPipeline ?? AudioPipeline(),
        _playlist = _PlaylistAudioSource(
          children: [],
@@ -230,62 +237,6 @@ class AudioPlayer {
       ),
     );
     unawaited(_setPlatformActive(false, force: true)?.catchError((_) => null));
-    // Respond to changes to AndroidAudioAttributes configuration.
-    if (androidApplyAudioAttributes && _isAndroid()) {
-      unawaited(
-        AudioSession.instance.then((audioSession) {
-          _androidAudioAttributesSubscription = audioSession.configurationStream
-              .map((conf) => conf.androidAudioAttributes)
-              .where((attributes) => attributes != null)
-              .cast<AndroidAudioAttributes>()
-              .distinct()
-              .listen(setAndroidAudioAttributes);
-        }),
-      );
-    }
-    if (handleInterruptions) {
-      unawaited(
-        AudioSession.instance.then((session) {
-          _becomingNoisyEventSubscription = session.becomingNoisyEventStream.listen((_) {
-            unawaited(pause());
-          });
-          _interruptionEventSubscription = session.interruptionEventStream.listen((event) {
-            if (event.begin) {
-              switch (event.type) {
-                case AudioInterruptionType.duck:
-                  assert(_isAndroid(), 'Ducking interruptions only occur on Android.');
-                  if (session.androidAudioAttributes!.usage == AndroidAudioUsage.game) {
-                    unawaited(setVolume(volume / 2));
-                  }
-                  _playInterrupted = false;
-                case AudioInterruptionType.pause:
-                case AudioInterruptionType.unknown:
-                  if (playing) {
-                    unawaited(pause());
-                    // Although pause is async and sets _playInterrupted = false,
-                    // this is done in the sync portion.
-                    _playInterrupted = true;
-                  }
-              }
-            } else {
-              switch (event.type) {
-                case AudioInterruptionType.duck:
-                  assert(_isAndroid(), 'Ducking interruptions only occur on Android.');
-                  unawaited(setVolume(min(1, volume * 2)));
-                  _playInterrupted = false;
-                case AudioInterruptionType.pause:
-                  if (_playInterrupted) {
-                    unawaited(play());
-                  }
-                  _playInterrupted = false;
-                case AudioInterruptionType.unknown:
-                  _playInterrupted = false;
-              }
-            }
-          });
-        }),
-      );
-    }
     if (maxSkipsOnError > 0) {
       var consecutiveErrorCount = 0;
       _errorsSubscription = errorStream.listen((error) {
@@ -346,9 +297,6 @@ class AudioPlayer {
   /// subscribe to the new platform's events.
   StreamSubscription<PlayerDataMessage>? _playerDataSubscription;
 
-  StreamSubscription<AndroidAudioAttributes>? _androidAudioAttributesSubscription;
-  StreamSubscription<void>? _becomingNoisyEventSubscription;
-  StreamSubscription<AudioInterruptionEvent>? _interruptionEventSubscription;
   StreamSubscription<void>? _positionDiscontinuitySubscription;
   StreamSubscription<void>? _currentIndexSubscription;
   StreamSubscription<void>? _errorsSubscription;
@@ -417,10 +365,9 @@ class AudioPlayer {
   bool _canUseNetworkResourcesForLiveStreamingWhilePaused = false;
   double _preferredPeakBitRate = 0;
   bool _allowsExternalPlayback = false;
-  bool _playInterrupted = false;
   bool _platformLoading = false;
   AndroidAudioAttributes? _androidAudioAttributes;
-  final bool _androidApplyAudioAttributes;
+  final bool _handleInterruptions;
   final bool _handleAudioSessionActivation;
 
   /// Counts how many times [_setPlatformActive] is called.
@@ -617,6 +564,13 @@ class AudioPlayer {
   /// Whether the player allows external playback on iOS/macOS, defaults to
   /// false.
   bool get allowsExternalPlayback => _allowsExternalPlayback;
+
+  /// Whether the player automatically reacts to audio interruptions and pauses
+  /// when headphones are unplugged.
+  bool get handleInterruptions => _handleInterruptions;
+
+  /// Whether the player activates the shared audio session on iOS.
+  bool get handleAudioSessionActivation => _handleAudioSessionActivation;
 
   /// The current position of the player.
   Duration get position => _getPositionFor(playbackEvent);
@@ -1088,10 +1042,9 @@ class AudioPlayer {
     if (playing) {
       return;
     }
-    _playInterrupted = false;
-    // Broadcast to clients immediately, but revert to false if we fail to
-    // activate the audio session. This allows setAudioSource to be aware of a
-    // prior play request.
+    // Broadcast to clients immediately, but revert to false if the platform
+    // fails to start. This allows setAudioSource to be aware of a prior play
+    // request.
     _playerEventSubject.add(
       PlayerEvent(
         playing: true,
@@ -1099,48 +1052,38 @@ class AudioPlayer {
       ),
     );
     final playCompleter = Completer<void>();
-    final audioSession = await AudioSession.instance;
-    if (!_handleAudioSessionActivation || await audioSession.setActive(true)) {
-      if (!playing) {
-        return;
+    // The platform answers the play request when playback is paused or
+    // completes, but the request may never be sent: there may be nothing to
+    // play yet, or the activation that would send it may be superseded. So
+    // also finish once playing stops, playback completes or the player is
+    // disposed.
+    unawaited(
+      _playerEventSubject.stream
+          .skip(1)
+          .firstWhere((event) => !event.playing || event.playbackEvent.processingState == ProcessingState.completed)
+          .then<void>((_) {}, onError: (Object _) {})
+          .whenComplete(() {
+            if (!playCompleter.isCompleted) {
+              playCompleter.complete();
+            }
+          }),
+    );
+    // TODO(SunnatilloShavkatov): rewrite this to more cleanly handle simultaneous load/play
+    // requests which each may result in platform play requests.
+    // If there is nothing to play yet, a later load starts playback.
+    if (_playlist.children.isNotEmpty) {
+      if (_active) {
+        // If the native platform is already active, send it a play request.
+        // NOTE: If a load() request happens simultaneously, this may result
+        // in two play requests being sent. The platform implementation should
+        // ignore the second play request since it is already playing.
+        unawaited(_sendPlayRequest(await _platform, playCompleter));
+      } else {
+        // If the native platform wasn't already active, activating it will
+        // implicitly restore the playing state and send a play request. If
+        // the activation fails, it completes playCompleter with the error.
+        unawaited(_setPlatformActive(true, playCompleter: playCompleter)?.catchError((_) => null));
       }
-      // The platform answers the play request when playback is paused or
-      // completes, but the request may never be sent: there may be nothing to
-      // play yet, or the activation that would send it may be superseded. So
-      // also finish once playing stops, playback completes or the player is
-      // disposed.
-      unawaited(
-        _playerEventSubject.stream
-            .skip(1)
-            .firstWhere((event) => !event.playing || event.playbackEvent.processingState == ProcessingState.completed)
-            .then<void>((_) {}, onError: (Object _) {})
-            .whenComplete(() {
-              if (!playCompleter.isCompleted) {
-                playCompleter.complete();
-              }
-            }),
-      );
-      // TODO(SunnatilloShavkatov): rewrite this to more cleanly handle simultaneous load/play
-      // requests which each may result in platform play requests.
-      // If there is nothing to play yet, a later load starts playback.
-      if (_playlist.children.isNotEmpty) {
-        if (_active) {
-          // If the native platform is already active, send it a play request.
-          // NOTE: If a load() request happens simultaneously, this may result
-          // in two play requests being sent. The platform implementation should
-          // ignore the second play request since it is already playing.
-          unawaited(_sendPlayRequest(await _platform, playCompleter));
-        } else {
-          // If the native platform wasn't already active, activating it will
-          // implicitly restore the playing state and send a play request. If
-          // the activation fails, it completes playCompleter with the error.
-          unawaited(_setPlatformActive(true, playCompleter: playCompleter)?.catchError((_) => null));
-        }
-      }
-    } else {
-      // Revert if we fail to activate the audio session.
-      _playerEventSubject.add(playerEvent.copyWith(playing: false));
-      return;
     }
     await playCompleter.future;
   }
@@ -1154,7 +1097,6 @@ class AudioPlayer {
     if (!playing) {
       return;
     }
-    _playInterrupted = false;
     // Update local state immediately so that queries aren't surprised.
     _playerEventSubject.add(
       PlayerEvent(
@@ -1198,7 +1140,6 @@ class AudioPlayer {
     }
     final future = _setPlatformActive(false)?.catchError((_) => null);
 
-    _playInterrupted = false;
     // Update local state immediately so that queries aren't surprised.
     _playerEventSubject.add(playerEvent.copyWith(playing: false));
     await future;
@@ -1426,8 +1367,15 @@ class AudioPlayer {
     }
   }
 
-  /// Sets the Android audio attributes for this player. Has no effect on other
-  /// platforms. This will cause a new Android AudioSession ID to be generated.
+  /// Sets the Android audio attributes for this player, which describe what
+  /// kind of audio it plays and why. They decide how Android routes the audio
+  /// and, unless `handleInterruptions` is `false`, how the player responds to
+  /// other apps taking the audio focus: speech is paused, other content is
+  /// ducked. Call it before setting the audio source to have the attributes in
+  /// place from the start. Has no effect on other platforms. This will cause a
+  /// new Android AudioSession ID to be generated.
+  ///
+  /// Without it, the player plays as `AndroidAudioUsage.media`.
   Future<void> setAndroidAudioAttributes(AndroidAudioAttributes audioAttributes) async {
     if (_disposed) {
       return;
@@ -1481,9 +1429,6 @@ class AudioPlayer {
     _audioSources.clear();
     await _playerDataSubscription?.cancel();
     await _playbackEventSubscription?.cancel();
-    await _androidAudioAttributesSubscription?.cancel();
-    await _becomingNoisyEventSubscription?.cancel();
-    await _interruptionEventSubscription?.cancel();
     await _positionDiscontinuitySubscription?.cancel();
     await _currentIndexSubscription?.cancel();
     await _errorsSubscription?.cancel();
@@ -1691,6 +1636,8 @@ class AudioPlayer {
                       .toList(),
                   androidAudioOffloadPreferences: _androidAudioOffloadPreferences?._toMessage(),
                   useLazyPreparation: _playlist.useLazyPreparation,
+                  handleInterruptions: _handleInterruptions,
+                  handleAudioSessionActivation: _handleAudioSessionActivation,
                 ),
               ))
             : (_idlePlatform = _IdleAudioPlayer(
@@ -1720,19 +1667,10 @@ class AudioPlayer {
         final playing = this.playing;
         // To avoid a glitch in ExoPlayer, ensure that any requested audio
         // attributes are set before loading the audio source.
-        if (_isAndroid()) {
-          if (_androidApplyAudioAttributes) {
-            final audioSession = await AudioSession.instance;
-            if (checkInterruption()) {
-              return inactiveResult(platform);
-            }
-            _androidAudioAttributes ??= audioSession.configuration?.androidAudioAttributes;
-          }
-          if (_androidAudioAttributes != null) {
-            await _internalSetAndroidAudioAttributes(platform, _androidAudioAttributes!);
-            if (checkInterruption()) {
-              return inactiveResult(platform);
-            }
+        if (_androidAudioAttributes != null) {
+          await _internalSetAndroidAudioAttributes(platform, _androidAudioAttributes!);
+          if (checkInterruption()) {
+            return inactiveResult(platform);
           }
         }
         if (!automaticallyWaitsToMinimizeStalling) {

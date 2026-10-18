@@ -4,7 +4,6 @@ import 'dart:math';
 import 'package:audio_player/audio_player.dart';
 import 'package:audio_player/src/audio_player.dart' show AudioPlayerTestHooks;
 import 'package:audio_player/src/platform_interface/audio_player_platform_interface.dart';
-import 'package:audio_session/audio_session.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -18,7 +17,6 @@ void main() {
 void runTests() {
   final mock = MockAudioPlayerPlatform();
   AudioPlayerPlatform.instance = mock;
-  const audioSessionChannel = MethodChannel('com.ryanheise.audio_session');
 
   void expectDuration(Duration a, Duration b, {int epsilon = 30}) {
     expect((a - b).inMilliseconds.abs(), lessThanOrEqualTo(epsilon));
@@ -46,16 +44,6 @@ void runTests() {
   // all of the player's features are available.
   setUpAll(() => AudioPlayerTestHooks.testTargetPlatform = TargetPlatform.android);
   tearDownAll(() => AudioPlayerTestHooks.testTargetPlatform = null);
-
-  setUp(() {
-    _ambiguate(TestDefaultBinaryMessengerBinding.instance)!.defaultBinaryMessenger
-        .setMockMethodCallHandler(audioSessionChannel, (MethodCall methodCall) async => null);
-  });
-
-  tearDown(() {
-    _ambiguate(TestDefaultBinaryMessengerBinding.instance)!.defaultBinaryMessenger
-        .setMockMethodCallHandler(audioSessionChannel, null);
-  });
 
   test('init', () async {
     final player = AudioPlayer();
@@ -309,6 +297,66 @@ void runTests() {
   test('setAndroidAudioAttributes', () async {
     final player = AudioPlayer();
     await player.setAndroidAudioAttributes(const AndroidAudioAttributes());
+    await player.dispose();
+  });
+
+  test('setAndroidAudioAttributes reaches the platform before the audio source loads', () async {
+    final player = AudioPlayer();
+    const attributes = AndroidAudioAttributes(
+      contentType: AndroidAudioContentType.speech,
+      flags: AndroidAudioFlags.audibilityEnforced,
+      usage: AndroidAudioUsage.game,
+    );
+    await player.setAndroidAudioAttributes(attributes);
+    await player.setUrl('https://foo.foo/foo.mp3');
+    final platform = mock.mostRecentPlayer!;
+    expect(platform.androidAudioAttributesRequests, hasLength(1));
+    final request = platform.androidAudioAttributesRequests.single;
+    expect(request.contentType, equals(AndroidAudioContentType.speech.index));
+    expect(request.flags, equals(AndroidAudioFlags.audibilityEnforced.value));
+    expect(request.usage, equals(AndroidAudioUsage.game.value));
+    // Setting equal attributes again is not sent twice.
+    await player.setAndroidAudioAttributes(attributes);
+    expect(platform.androidAudioAttributesRequests, hasLength(1));
+    await player.setAndroidAudioAttributes(const AndroidAudioAttributes(usage: AndroidAudioUsage.alarm));
+    expect(platform.androidAudioAttributesRequests, hasLength(2));
+    await player.dispose();
+  });
+
+  test('init request asks the platform to handle interruptions and the audio session', () async {
+    final player = AudioPlayer();
+    await player.setUrl('https://foo.foo/foo.mp3');
+    var initRequest = mock.mostRecentPlayer!.initRequest;
+    expect(initRequest.handleInterruptions, isTrue);
+    expect(initRequest.handleAudioSessionActivation, isTrue);
+    expect(initRequest.toMap()['handleInterruptions'], isTrue);
+    expect(initRequest.toMap()['handleAudioSessionActivation'], isTrue);
+    await player.dispose();
+
+    final manualPlayer = AudioPlayer(handleInterruptions: false, handleAudioSessionActivation: false);
+    await manualPlayer.setUrl('https://foo.foo/foo.mp3');
+    initRequest = mock.mostRecentPlayer!.initRequest;
+    expect(initRequest.handleInterruptions, isFalse);
+    expect(initRequest.handleAudioSessionActivation, isFalse);
+    expect(initRequest.toMap()['handleInterruptions'], isFalse);
+    expect(initRequest.toMap()['handleAudioSessionActivation'], isFalse);
+    await manualPlayer.dispose();
+  });
+
+  test('playing becomes false when the platform pauses on its own', () async {
+    final player = AudioPlayer();
+    await player.setUrl('https://foo.foo/foo.mp3');
+    final platform = mock.mostRecentPlayer!;
+    unawaited(player.play());
+    await player.playingStream.firstWhere((playing) => playing);
+    // For example, the Android audio focus was lost for good.
+    platform._broadcastDataMessage(PlayerDataMessage(playing: false));
+    await player.playingStream.firstWhere((playing) => !playing);
+    expect(player.playing, isFalse);
+    // The user can start playback again.
+    unawaited(player.play());
+    expect(player.playing, isTrue);
+    await player.pause();
     await player.dispose();
   });
 
@@ -1547,9 +1595,12 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
     _broadcastPlaybackEvent();
   }
 
+  final androidAudioAttributesRequests = <SetAndroidAudioAttributesRequest>[];
+
   @override
   Future<SetAndroidAudioAttributesResponse> setAndroidAudioAttributes(SetAndroidAudioAttributesRequest request) async {
     audioEffectCalls.add('setAndroidAudioAttributes');
+    androidAudioAttributesRequests.add(request);
     return SetAndroidAudioAttributesResponse();
   }
 
@@ -1725,5 +1776,3 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 class MockLoadRequest {
   bool interrupted = false;
 }
-
-T? _ambiguate<T>(T? value) => value;

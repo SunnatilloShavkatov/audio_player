@@ -347,6 +347,8 @@ class InitRequest {
     this.androidAudioOffloadPreferences,
     this.androidOffloadSchedulingEnabled,
     this.useLazyPreparation = true,
+    this.handleInterruptions = true,
+    this.handleAudioSessionActivation = true,
   });
   final String id;
   final AudioLoadConfigurationMessage? audioLoadConfiguration;
@@ -356,6 +358,15 @@ class InitRequest {
   final bool? androidOffloadSchedulingEnabled;
   final bool useLazyPreparation;
 
+  /// Whether the platform player pauses, ducks and resumes by itself when the
+  /// audio focus (Android) or the audio session (iOS) is interrupted, and
+  /// pauses when headphones are unplugged.
+  final bool handleInterruptions;
+
+  /// Whether the platform player configures and activates the audio session
+  /// before it starts playing (iOS only).
+  final bool handleAudioSessionActivation;
+
   Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
     'id': id,
     'audioLoadConfiguration': audioLoadConfiguration?.toMap(),
@@ -363,6 +374,8 @@ class InitRequest {
     'androidAudioOffloadPreferences': androidAudioOffloadPreferences?.toMap(),
     'androidOffloadSchedulingEnabled': androidOffloadSchedulingEnabled,
     'useLazyPreparation': useLazyPreparation,
+    'handleInterruptions': handleInterruptions,
+    'handleAudioSessionActivation': handleAudioSessionActivation,
   };
 }
 

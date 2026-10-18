@@ -21,6 +21,11 @@ published as `uz.plugin.audio_player`.
 ```bash
 flutter pub get && flutter analyze && flutter test
 dart format --set-exit-if-changed .                          # width 120
+```
+
+The user runs the native builds and integration tests themselves. Agents must NOT run them (see Rules):
+
+```bash
 cd example && flutter build ios --simulator --no-codesign    # compiles Swift
 cd example && flutter build macos --debug                    # compiles Swift for macOS
 cd example && flutter build apk --debug                      # compiles Kotlin
@@ -35,9 +40,13 @@ cd example && flutter test integration_test -d <device>      # runs the native p
 - Don't edit `build/`, `.dart_tool/`, `example/build/`, `*.g.dart`. Match surrounding style; no new dependencies
   without reason.
 - Never `git commit` or push; leave changes in the working tree.
-- Before saying a change works: run analyze + test, and build the example for touched native platforms. For native
-  behavior changes, also run the integration tests on each touched platform. If something couldn't be run (no
-  device/simulator), say so.
+- Never build or run the example app or its integration tests for iOS, Android or macOS (`flutter build ios|macos|apk`,
+  `flutter run`, `flutter test integration_test`, `xcodebuild`, `gradlew`, simulator or emulator launches). The user
+  does that. `.claude/settings.json` denies these commands. Edit the Swift/Kotlin carefully by reading it, and say it
+  was not compiled or run.
+- Before saying a change works: run `flutter analyze`, `dart format --set-exit-if-changed .` and `flutter test`. When
+  native code (Swift, Kotlin) changed, state that it was not compiled or run on any platform, and name which platforms
+  the user should build and test.
 - Unit tests run on the development machine: platform-specific code checks `_isAndroid()`, which tests override with
   `AudioPlayerTestHooks.testTargetPlatform`. Don't add test-only branches to `lib/`.
 

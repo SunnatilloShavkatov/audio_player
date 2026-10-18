@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:audio_player/audio_player.dart';
 import 'package:audio_player_example/common.dart';
-import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:rxdart/rxdart.dart';
@@ -69,8 +68,11 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   Future<void> _init() async {
-    final session = await AudioSession.instance;
-    await session.configure(const AudioSessionConfiguration.speech());
+    // Inform the operating system of our app's audio attributes.
+    // We pick a reasonable default for an app that plays speech.
+    await _player.setAndroidAudioAttributes(
+      const AndroidAudioAttributes(contentType: AndroidAudioContentType.speech, usage: AndroidAudioUsage.media),
+    );
     // Listen to errors during playback.
     _player.errorStream.listen((e) {
       debugPrint('A stream error occurred: $e');

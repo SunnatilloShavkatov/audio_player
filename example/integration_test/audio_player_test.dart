@@ -176,7 +176,9 @@ void main() {
   });
 
   testWidgets('plays two players at once', (_) async {
-    final other = AudioPlayer();
+    // On Android every player that handles interruptions asks for the audio focus when it starts, and the other one
+    // loses it for good and pauses. A player that does not handle interruptions never asks, so it can play alongside.
+    final other = AudioPlayer(handleInterruptions: false);
     addTearDown(other.dispose);
     await player.setAsset(_tone).timeout(_timeout);
     await other.setAsset(_tone).timeout(_timeout);
@@ -186,8 +188,87 @@ void main() {
       waitForPosition(player, const Duration(milliseconds: 500)),
       waitForPosition(other, const Duration(milliseconds: 500)),
     ]);
+    expect(player.playing, isTrue);
+    expect(other.playing, isTrue);
     await player.pause();
     await other.pause();
+  });
+
+  testWidgets('plays with interruption and audio session handling turned off', (_) async {
+    final manual = AudioPlayer(handleInterruptions: false, handleAudioSessionActivation: false);
+    addTearDown(manual.dispose);
+    expect(manual.handleInterruptions, isFalse);
+    expect(manual.handleAudioSessionActivation, isFalse);
+    expectNear(
+      await manual.setAsset(_tone, initialPosition: const Duration(milliseconds: 2500)).timeout(_timeout),
+      _toneDuration,
+    );
+    await manual.play().timeout(_timeout);
+    expect(manual.processingState, equals(ProcessingState.completed));
+  });
+
+  testWidgets('applies Android audio attributes, and ignores them elsewhere', (_) async {
+    // Set before the source is loaded, so that the native player applies them once it has prepared.
+    await player.setAndroidAudioAttributes(
+      const AndroidAudioAttributes(contentType: AndroidAudioContentType.music, usage: AndroidAudioUsage.media),
+    );
+    expectNear(await player.setAsset(_tone).timeout(_timeout), _toneDuration);
+    if (Platform.isAndroid) {
+      expect(player.androidAudioSessionId, isNotNull);
+    }
+    // And again while the source is loaded.
+    await player.setAndroidAudioAttributes(
+      const AndroidAudioAttributes(
+        contentType: AndroidAudioContentType.speech,
+        usage: AndroidAudioUsage.assistanceNavigationGuidance,
+      ),
+    );
+    final playing = player.play();
+    await waitForPosition(player, const Duration(milliseconds: 300));
+    expect(player.playing, isTrue);
+    await player.pause();
+    await playing.timeout(_timeout);
+  });
+
+  testWidgets('pauses when another player takes the audio focus on Android', (_) async {
+    final other = AudioPlayer();
+    addTearDown(other.dispose);
+    await player.setAsset(_tone).timeout(_timeout);
+    await other.setAsset(_tone).timeout(_timeout);
+    final playing = player.play();
+    await waitForPosition(player, const Duration(milliseconds: 300));
+
+    unawaited(other.play());
+    // ExoPlayer pauses itself on a permanent loss of the focus, so the native player has to report `playing: false`,
+    // and answer the pending play() request.
+    await player.playingStream.firstWhere((isPlaying) => !isPlaying).timeout(_timeout);
+    await playing.timeout(_timeout);
+    expect(player.playing, isFalse);
+    expect(other.playing, isTrue);
+    await waitForPosition(other, const Duration(milliseconds: 300));
+
+    // Asking for the focus back works, and takes it from the other player in turn.
+    unawaited(player.play());
+    await other.playingStream.firstWhere((isPlaying) => !isPlaying).timeout(_timeout);
+    expect(player.playing, isTrue);
+    await player.pause();
+  }, skip: !Platform.isAndroid);
+
+  testWidgets('releases the platform players of disposed players that were playing', (_) async {
+    // Each of these registers audio session observers (iOS) or holds the audio focus (Android) while it plays. If
+    // disposing did not release them, a later player could not play, or a notification would reach a dead player.
+    for (var i = 0; i < 3; i++) {
+      final playing = AudioPlayer();
+      await playing.setAsset(_tone).timeout(_timeout);
+      unawaited(playing.play());
+      await waitForPosition(playing, const Duration(milliseconds: 200));
+      await playing.dispose().timeout(_timeout);
+    }
+    await player.setAsset(_tone).timeout(_timeout);
+    unawaited(player.play());
+    await waitForPosition(player, const Duration(milliseconds: 300));
+    expect(player.playing, isTrue);
+    await player.pause();
   });
 
   testWidgets('applies Android audio effects, and ignores them elsewhere', (_) async {

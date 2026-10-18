@@ -31,7 +31,13 @@ public class AudioPlayerPlugin: NSObject, FlutterPlugin {
                 result(FlutterError(code: "error", message: "Platform player already exists", details: nil))
             } else {
                 let loadConfiguration = request["audioLoadConfiguration"] as? [String: Any]
-                players[playerId] = AudioPlayer(registrar: registrar, playerId: playerId, loadConfiguration: loadConfiguration)
+                players[playerId] = AudioPlayer(
+                    registrar: registrar,
+                    playerId: playerId,
+                    loadConfiguration: loadConfiguration,
+                    handleInterruptions: request["handleInterruptions"] as? Bool ?? true,
+                    handleAudioSessionActivation: request["handleAudioSessionActivation"] as? Bool ?? true
+                )
                 result(nil)
             }
         case "disposePlayer":

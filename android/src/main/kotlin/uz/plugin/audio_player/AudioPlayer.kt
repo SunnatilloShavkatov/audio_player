@@ -1,6 +1,7 @@
 package uz.plugin.audio_player
 
 import android.content.Context
+import android.media.AudioManager
 import android.media.audiofx.AudioEffect
 import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
@@ -61,6 +62,7 @@ class AudioPlayer(
     audioOffloadPreferences: Map<*, *>?,
     offloadSchedulingEnabled: Boolean?,
     private val useLazyPreparation: Boolean,
+    private val handleInterruptions: Boolean,
 ) : MethodCallHandler, Player.Listener, MetadataOutput {
 
     private enum class ProcessingState {
@@ -352,13 +354,29 @@ class AudioPlayer(
         }
     }
 
+    /**
+     * ExoPlayer pauses itself when the audio focus is lost for good, when headphones are unplugged and when
+     * playback stayed suppressed for too long. Dart owns the `playing` state, so it has to be told.
+     */
+    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+        if (playWhenReady || reason == Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST) return
+        updatePositionNow()
+        enqueuePlaybackEvent()
+        playResult?.let {
+            it.success(emptyMap<String, Any?>())
+            playResult = null
+        }
+        dataEventChannel.success(mapOf("playing" to false))
+        broadcastPendingPlaybackEvent()
+    }
+
     /** Completes a pending [load] call with the duration, then applies any deferred audio attributes. */
     private fun completePrepare() {
         val result = prepareResult ?: return
         result.success(mapOf("duration" to durationMicros()))
         prepareResult = null
         pendingAudioAttributes?.let {
-            player.setAudioAttributes(it, false)
+            player.setAudioAttributes(it, handleInterruptions)
             pendingAudioAttributes = null
         }
     }
@@ -483,17 +501,19 @@ class AudioPlayer(
                     result.success(emptyMap<String, Any?>())
                 }
                 "audioEffectSetEnabled" -> {
-                    audioEffectsMap[call.argument<String>("type")!!]!!
-                        .setEnabled(call.argument<Boolean>("enabled")!!)
+                    audioEffectsMap[call.argument<String>("type")!!]
+                        ?.setEnabled(call.argument<Boolean>("enabled")!!)
                     result.success(emptyMap<String, Any?>())
                 }
                 "androidLoudnessEnhancerSetTargetGain" -> {
-                    loudnessEnhancerSetTargetGain(call.argument<Double>("targetGain")!!)
+                    val targetGain = call.argument<Number>("targetGain")?.toDouble() ?: 0.0
+                    loudnessEnhancerSetTargetGain(targetGain)
                     result.success(emptyMap<String, Any?>())
                 }
                 "androidEqualizerGetParameters" -> result.success(equalizerAudioEffectGetParameters())
                 "androidEqualizerBandSetGain" -> {
-                    equalizerBandSetGain(call.argument<Int>("bandIndex")!!, call.argument<Double>("gain")!!)
+                    val gain = call.argument<Number>("gain")?.toDouble() ?: 0.0
+                    equalizerBandSetGain(call.argument<Int>("bandIndex")!!, gain)
                     result.success(emptyMap<String, Any?>())
                 }
                 else -> result.notImplemented()
@@ -598,7 +618,8 @@ class AudioPlayer(
         when (val type = map["type"] as String) {
             "AndroidLoudnessEnhancer" -> {
                 // target gain needs to be provided in milliBel, the user provides the value in deciBel
-                val targetGain = Math.round((map["targetGain"] as Double) * 100.0).toInt()
+                val rawGain = (map["targetGain"] as? Number)?.toDouble() ?: 0.0
+                val targetGain = Math.round(rawGain * 100.0).toInt()
                 LoudnessEnhancer(audioSessionId).apply { setTargetGain(targetGain) }
             }
             "AndroidEqualizer" -> Equalizer(0, audioSessionId)
@@ -668,6 +689,11 @@ class AudioPlayer(
         }
         val builder = ExoPlayer.Builder(context, renderersFactory)
         builder.setUseLazyPreparation(useLazyPreparation)
+        // ExoPlayer requests the audio focus while playing, ducks or pauses when another app takes it
+        // temporarily and resumes when it returns, and pauses when headphones are unplugged. The audio
+        // attributes can be replaced later by setAndroidAudioAttributes.
+        builder.setAudioAttributes(AudioAttributes.DEFAULT, handleInterruptions)
+        builder.setHandleAudioBecomingNoisy(handleInterruptions)
         loadControl?.let { builder.setLoadControl(it) }
         livePlaybackSpeedControl?.let { builder.setLivePlaybackSpeedControl(it) }
         val newPlayer = builder.build()
@@ -678,6 +704,11 @@ class AudioPlayer(
         // Listen before anything else can fail, so the player never ends up created but silent.
         newPlayer.addListener(this)
         exoPlayer = newPlayer
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val generatedSessionId = audioManager?.generateAudioSessionId() ?: C.AUDIO_SESSION_ID_UNSET
+        if (generatedSessionId != C.AUDIO_SESSION_ID_UNSET && generatedSessionId != AudioManager.ERROR) {
+            newPlayer.setAudioSessionId(generatedSessionId)
+        }
         updateAudioSessionId(newPlayer.audioSessionId)
     }
 
@@ -692,18 +723,25 @@ class AudioPlayer(
             // avoid an ExoPlayer glitch.
             pendingAudioAttributes = audioAttributes
         } else {
-            player.setAudioAttributes(audioAttributes, false)
+            player.setAudioAttributes(audioAttributes, handleInterruptions)
         }
     }
 
     private fun loudnessEnhancerSetTargetGain(targetGain: Double) {
         // target gain needs to be provided in milliBel, the user provides the value in deciBel
         val targetGainMillibels = Math.round(targetGain * 100.0).toInt()
-        (audioEffectsMap["AndroidLoudnessEnhancer"] as LoudnessEnhancer).setTargetGain(targetGainMillibels)
+        (audioEffectsMap["AndroidLoudnessEnhancer"] as? LoudnessEnhancer)?.setTargetGain(targetGainMillibels)
     }
 
     private fun equalizerAudioEffectGetParameters(): Map<String, Any?> {
-        val equalizer = audioEffectsMap["AndroidEqualizer"] as Equalizer
+        val equalizer = audioEffectsMap["AndroidEqualizer"] as? Equalizer
+            ?: return mapOf(
+                "parameters" to mapOf(
+                    "minDecibels" to 0.0,
+                    "maxDecibels" to 0.0,
+                    "bands" to emptyList<Map<String, Any?>>(),
+                ),
+            )
         val rawBands = ArrayList<Any?>()
         for (i in 0 until equalizer.numberOfBands.toInt()) {
             val band = i.toShort()
@@ -733,8 +771,8 @@ class AudioPlayer(
 
     private fun equalizerBandSetGain(bandIndex: Int, gain: Double) {
         // target gain needs to be provided in milliBel, the user provides the value in deciBel
-        (audioEffectsMap["AndroidEqualizer"] as Equalizer)
-            .setBandLevel(bandIndex.toShort(), Math.round(gain * 100.0).toShort())
+        (audioEffectsMap["AndroidEqualizer"] as? Equalizer)
+            ?.setBandLevel(bandIndex.toShort(), Math.round(gain * 100.0).toShort())
     }
 
     /** Creates an event based on the current state. */

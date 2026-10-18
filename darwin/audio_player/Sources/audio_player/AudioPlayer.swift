@@ -38,6 +38,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     private let dataEventChannel: BetterEventChannel
     private let playerId: String
     private let loadControl: LoadControl
+    private let handleAudioSessionActivation: Bool
 
     private(set) var player: AVQueuePlayer?
     private(set) var speed: Float = 1.0
@@ -69,9 +70,19 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     private var errorMessage: String?
     // Items whose KVO and notification observers are currently registered.
     private let observedItems = NSHashTable<AVPlayerItem>.weakObjects()
+    // Set when an audio session interruption paused playback that should resume once the interruption ends.
+    private var resumeAfterInterruption = false
+    private var audioSessionObservers: [NSObjectProtocol] = []
 
-    init(registrar: FlutterPluginRegistrar, playerId: String, loadConfiguration: [String: Any]?) {
+    init(
+        registrar: FlutterPluginRegistrar,
+        playerId: String,
+        loadConfiguration: [String: Any]?,
+        handleInterruptions: Bool,
+        handleAudioSessionActivation: Bool
+    ) {
         self.playerId = playerId
+        self.handleAudioSessionActivation = handleAudioSessionActivation
         let messenger = registrar.binaryMessenger
         methodChannel = FlutterMethodChannel(name: "uz.plugin.audio_player.methods.\(playerId)", binaryMessenger: messenger)
         eventChannel = BetterEventChannel(name: "uz.plugin.audio_player.events.\(playerId)", messenger: messenger)
@@ -89,6 +100,9 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
 
         methodChannel.setMethodCallHandler { [weak self] call, result in
             self?.handleMethodCall(call, result: result)
+        }
+        if handleInterruptions {
+            observeAudioSession()
         }
     }
 
@@ -874,6 +888,15 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
             result([String: Any]())
             return
         }
+        if handleAudioSessionActivation && !activateAudioSession() {
+            // The system refuses to let this app play right now (a phone call is in progress, for example). Dart has
+            // already set `playing`, so answer the request and tell it to revert.
+            result([String: Any]())
+            dataEventChannel.sendEvent(["playing": false])
+            return
+        }
+        // Playing on purpose supersedes an interruption that was waiting to be resumed.
+        resumeAfterInterruption = false
         if let playResult {
             playResult([String: Any]())
         }
@@ -1103,9 +1126,104 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         }
     }
 
+    // MARK: - Audio session
+
+    /// Prepares the shared audio session for playback. Returns false if the system refuses to activate it.
+    private func activateAudioSession() -> Bool {
+        #if os(iOS)
+        let session = AVAudioSession.sharedInstance()
+        do {
+            // The ambient categories can't play in the background or with the silent switch on. Any other category
+            // was chosen by the app, so leave it alone.
+            if session.category == .ambient || session.category == .soloAmbient {
+                try session.setCategory(.playback, mode: .default)
+            }
+            try session.setActive(true)
+        } catch {
+            return false
+        }
+        #endif
+        return true
+    }
+
+    private func observeAudioSession() {
+        #if os(iOS)
+        let center = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+        audioSessionObservers = [
+            center.addObserver(forName: AVAudioSession.interruptionNotification, object: session, queue: .main) { [weak self] notification in
+                self?.audioSessionInterrupted(notification)
+            },
+            center.addObserver(forName: AVAudioSession.routeChangeNotification, object: session, queue: .main) { [weak self] notification in
+                self?.audioSessionRouteChanged(notification)
+            },
+        ]
+        #endif
+    }
+
+    #if os(iOS)
+    private func audioSessionInterrupted(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              let rawType = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
+        switch type {
+        case .began:
+            if playing {
+                resumeAfterInterruption = true
+                pauseForSystem()
+            }
+        case .ended:
+            let rawOptions = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: rawOptions).contains(.shouldResume)
+            let resume = resumeAfterInterruption && shouldResume
+            resumeAfterInterruption = false
+            if resume {
+                resumeForSystem()
+            }
+        @unknown default:
+            break
+        }
+    }
+
+    private func audioSessionRouteChanged(_ notification: Notification) {
+        guard playing,
+              let info = notification.userInfo,
+              let rawReason = info[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              AVAudioSession.RouteChangeReason(rawValue: rawReason) == .oldDeviceUnavailable,
+              let previousRoute = info[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription
+        else { return }
+        // Headphones were unplugged or a Bluetooth device went away: don't let the audio jump to the speaker.
+        let wasPrivate = previousRoute.outputs.contains {
+            $0.portType != .builtInSpeaker && $0.portType != .builtInReceiver
+        }
+        if wasPrivate {
+            resumeAfterInterruption = false
+            pauseForSystem()
+        }
+    }
+
+    /// Pauses because the system asked for it. Dart owns the `playing` state, so it is told as well.
+    private func pauseForSystem() {
+        pause()
+        dataEventChannel.sendEvent(["playing": false])
+    }
+
+    private func resumeForSystem() {
+        guard !playing, let player, !handleAudioSessionActivation || activateAudioSession() else { return }
+        playing = true
+        player.rate = speed
+        updatePosition()
+        dataEventChannel.sendEvent(["playing": true])
+    }
+    #endif
+
     // MARK: - Disposal
 
     func dispose(calledFromDeinit: Bool) {
+        for observer in audioSessionObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        audioSessionObservers = []
         // The player is only created by the first successful load, but the channels exist from init and must be
         // released either way.
         if let player {

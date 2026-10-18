@@ -53,6 +53,7 @@ class MainMethodCallHandler(
             call.argument<Map<*, *>>("androidAudioOffloadPreferences"),
             call.argument<Boolean>("androidOffloadSchedulingEnabled"),
             call.argument<Boolean>("useLazyPreparation") ?: true,
+            call.argument<Boolean>("handleInterruptions") ?: true,
         )
         result.success(null)
     }

@@ -1,4 +1,4 @@
-## 2.0.0
+## 2.1.0
 
 * **Breaking:** removed the local HTTP proxy server. Request headers and the user agent are always sent by the native
   players: on Android through ExoPlayer's `setUserAgent` and `setDefaultRequestProperties`, on iOS/macOS through
@@ -16,6 +16,23 @@
   exactly one `UriAudioSource`. Code that catches `Exception` around `setClip` must catch `StateError` instead.
 * **Breaking:** removed `DarwinAudioEffect` and `AudioPipeline.darwinAudioEffects`. No effect implemented them and
   the iOS/macOS player never applied them.
+* **Breaking:** removed the `audio_session` dependency. The package now exports its own `AndroidAudioAttributes`,
+  `AndroidAudioContentType`, `AndroidAudioFlags` and `AndroidAudioUsage` with the same members, so
+  `setAndroidAudioAttributes` takes these types and code that passed the `audio_session` ones must switch. An app that
+  imports both packages needs `hide` or a prefix on one of them. `AudioSession.instance.configure(...)` is no longer
+  needed or read: call `setAndroidAudioAttributes` to describe the audio.
+* **Breaking:** removed the `androidApplyAudioAttributes` constructor parameter. The attributes passed to
+  `setAndroidAudioAttributes` are always applied.
+* The platform players now handle audio focus, interruptions and the audio session themselves, and the constructor's
+  `handleInterruptions` and `handleAudioSessionActivation` parameters are sent in the `init` message (new keys
+  `handleInterruptions` and `handleAudioSessionActivation`). Previously `audio_session` did this from Dart.
+  * Android: ExoPlayer requests audio focus (`handleInterruptions`, on by default; the default attributes are
+    `USAGE_MEDIA`). A transient loss of focus suppresses playback and resumes it afterwards without changing
+    `playing`. A permanent loss of focus or unplugged headphones pauses the player, and `playing` becomes `false`.
+  * iOS: the player activates the `AVAudioSession` before playing (`handleAudioSessionActivation`), switching the
+    `ambient` and `soloAmbient` categories to `playback`, and `play()` leaves `playing` `false` if activation fails.
+    With `handleInterruptions` it pauses on an interruption, resumes when the system says it should, and pauses when
+    the output device (such as headphones) is removed. macOS has no audio session, so none of this applies there.
 * Fix: `play()` no longer waits forever when the platform player cannot be created or configured. It completes with
   the error (a `PlayerException` for platform errors), `playing` reverts to `false`, the error is reported on
   `errorStream`, and the player stays usable instead of failing every later call with the same error. `load()` and
