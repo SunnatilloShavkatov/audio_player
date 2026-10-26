@@ -40,6 +40,7 @@ cd example && flutter test integration_test -d <device>      # runs the native p
 - Don't edit `build/`, `.dart_tool/`, `example/build/`, `*.g.dart`. Match surrounding style; no new dependencies
   without reason.
 - Never `git commit` or push; leave changes in the working tree.
+- Never create branches or worktrees; work in the current checkout and leave changes staged for review.
 - Never build or run the example app or its integration tests for iOS, Android or macOS (`flutter build ios|macos|apk`,
   `flutter run`, `flutter test integration_test`, `xcodebuild`, `gradlew`, simulator or emulator launches). The user
   does that. `.claude/settings.json` denies these commands. Edit the Swift/Kotlin carefully by reading it, and say it

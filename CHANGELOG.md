@@ -1,3 +1,8 @@
+## 2.1.1
+
+* Fix: `setVolume` and `setSpeed` no longer write rollback values to closed streams when disposal finishes
+  before a pending platform call fails. The original platform error is still rethrown.
+
 ## 2.1.0
 
 * **Breaking:** removed the local HTTP proxy server. Request headers and the user agent are always sent by the native

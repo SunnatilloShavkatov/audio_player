@@ -1295,6 +1295,50 @@ void runTests() {
     await player.dispose();
   });
 
+  group('setting rollback lifecycle', () {
+    for (final setting in ['volume', 'speed']) {
+      for (final disposeBeforeFailure in [false, true]) {
+        test('$setting preserves platform error after failure, disposed=$disposeBeforeFailure', () async {
+          final requestReached = Completer<void>();
+          final response = Completer<void>();
+          var armed = false;
+          Future<void> handleRequest() async {
+            if (!armed) {
+              return;
+            }
+            requestReached.complete();
+            await response.future;
+          }
+
+          mock
+            ..onSetVolume = setting == 'volume' ? handleRequest : null
+            ..onSetSpeed = setting == 'speed' ? handleRequest : null;
+          addTearDown(() {
+            mock
+              ..onSetVolume = null
+              ..onSetSpeed = null;
+          });
+          final player = AudioPlayer();
+          addTearDown(player.dispose);
+          await player.setUrl('https://foo.foo/foo.mp3');
+          armed = true;
+          final error = PlatformException(code: 'error', message: '$setting failed');
+          final request = setting == 'volume' ? player.setVolume(0.5) : player.setSpeed(1.5);
+          final expectation = expectLater(request, throwsA(same(error)));
+          await requestReached.future;
+          if (disposeBeforeFailure) {
+            await player.dispose();
+          }
+          response.completeError(error);
+          await expectation;
+          if (!disposeBeforeFailure) {
+            expect(setting == 'volume' ? player.volume : player.speed, equals(1.0));
+          }
+        });
+      }
+    }
+  });
+
   group('activation failure', () {
     tearDown(() {
       mock
@@ -1377,6 +1421,9 @@ class MockAudioPlayerPlatform extends Mock with MockPlatformInterfaceMixin imple
   /// Called by [MockAudioPlayer.setVolume] of the players created from now on.
   Future<void> Function()? onSetVolume;
 
+  /// Called by [MockAudioPlayer.setSpeed] of newly created players.
+  Future<void> Function()? onSetSpeed;
+
   @override
   Future<AudioPlayerInstancePlatform> init(InitRequest request) async {
     final error = initError;
@@ -1387,7 +1434,7 @@ class MockAudioPlayerPlatform extends Mock with MockPlatformInterfaceMixin imple
     if (_players.containsKey(request.id)) {
       throw PlatformException(code: 'error', message: 'Platform player ${request.id} already exists');
     }
-    final player = MockAudioPlayer(request, onSetVolume: onSetVolume);
+    final player = MockAudioPlayer(request, onSetVolume: onSetVolume, onSetSpeed: onSetSpeed);
     _players[request.id] = player;
     mostRecentPlayer = player;
     return player;
@@ -1430,11 +1477,12 @@ final icyMetadataMessage = IcyMetadataMessage(
 );
 
 class MockAudioPlayer extends AudioPlayerInstancePlatform {
-  new(this.initRequest, {this.onSetVolume})
+  new(this.initRequest, {this.onSetVolume, this.onSetSpeed})
     : audioLoadConfiguration = initRequest.audioLoadConfiguration,
       super(initRequest.id);
   final InitRequest initRequest;
   final Future<void> Function()? onSetVolume;
+  final Future<void> Function()? onSetSpeed;
 
   /// The names of the audio effect and Android-only methods called so far.
   final audioEffectCalls = <String>[];
@@ -1623,6 +1671,7 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   @override
   Future<SetSpeedResponse> setSpeed(SetSpeedRequest request) async {
+    await onSetSpeed?.call();
     _speed = request.speed;
     _setPosition(_position);
     return SetSpeedResponse();

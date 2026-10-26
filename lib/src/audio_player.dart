@@ -1161,7 +1161,9 @@ class AudioPlayer {
     try {
       await (await _platform).setVolume(SetVolumeRequest(volume: volume));
     } catch (e) {
-      _volumeSubject.add(previousVolume);
+      if (!_disposed) {
+        _volumeSubject.add(previousVolume);
+      }
       rethrow;
     }
   }
@@ -1210,7 +1212,9 @@ class AudioPlayer {
     try {
       await (await _platform).setSpeed(SetSpeedRequest(speed: speed));
     } catch (e) {
-      _speedSubject.add(previousSpeed);
+      if (!_disposed) {
+        _speedSubject.add(previousSpeed);
+      }
       rethrow;
     }
   }

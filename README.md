@@ -2,7 +2,7 @@
 
 A feature-rich, high-performance audio player plugin for Flutter. Play, loop, clip, and sequence audio from assets, local files and remote URLs in gapless playlists.
 
-[![pub package](https://img.shields.io/badge/pub-v2.1.0-blue.svg)](https://pub.dev/packages/audio_player)
+[![pub package](https://img.shields.io/badge/pub-v2.1.1-blue.svg)](https://pub.dev/packages/audio_player)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![platform](https://img.shields.io/badge/platform-android%20%7C%20ios%20%7C%20macos-lightgrey.svg)](https://github.com/SunnatilloShavkatov/audio_player)
 
@@ -45,7 +45,7 @@ Or add it to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  audio_player: ^2.1.0
+  audio_player: ^2.1.1
 ```
 
 ---
