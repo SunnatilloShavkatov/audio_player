@@ -33,10 +33,17 @@ class BetterEventChannel(messenger: BinaryMessenger, id: String) : EventSink {
         eventSink?.endOfStream()
     }
 
-    /** Ends the stream and unregisters the channel so the messenger stops referencing the handler. */
-    fun dispose() {
-        endOfStream()
+    /**
+     * Ends the stream and unregisters the channel so the messenger stops referencing the handler.
+     *
+     * When [calledFromDeinit] is true the FlutterEngine is being destroyed, so nothing is sent and the handler is
+     * left alone: the engine drops its handlers itself.
+     */
+    fun dispose(calledFromDeinit: Boolean) {
+        val sink = eventSink
         eventSink = null
+        if (calledFromDeinit) return
+        sink?.endOfStream()
         channel.setStreamHandler(null)
     }
 }

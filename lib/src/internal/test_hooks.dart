@@ -35,7 +35,7 @@ extension AudioPlayerTestHooks on AudioPlayer {
   @visibleForTesting
   static AudioSource testPlaylistGet(AudioSource playlist, int index) => (playlist as _PlaylistAudioSource)[index];
 
-  /// Exercises `_PluginLoadRequest.resetInitialSeekValues` and an interrupted
+  /// Exercises `_PluginLoadRequest.seekInitialValues` and an interrupted
   /// `checkInterruption`.
   @visibleForTesting
   static void testPluginLoadRequest() {
@@ -46,7 +46,7 @@ extension AudioPlayerTestHooks on AudioPlayer {
             initialIndex: 0,
             initialPosition: Duration.zero,
           )
-          ..resetInitialSeekValues()
+          ..seekInitialValues(index: 1, position: const Duration(seconds: 1))
           ..interrupted = true;
     try {
       req.checkInterruption();

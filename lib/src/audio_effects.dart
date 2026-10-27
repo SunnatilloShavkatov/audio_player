@@ -208,6 +208,11 @@ class AndroidEqualizer extends AudioEffect with AndroidAudioEffect {
       return;
     }
     final response = await platform.androidEqualizerGetParameters(AndroidEqualizerGetParametersRequest());
+    // An overlapping activation may have completed the parameters meanwhile.
+    if (_parametersCompleter.isCompleted) {
+      await (await parameters)._restore(platform);
+      return;
+    }
     final receivedParameters = AndroidEqualizerParameters._fromMessage(_player!, response.parameters);
     _parametersCompleter.complete(receivedParameters);
   }

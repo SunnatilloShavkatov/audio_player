@@ -214,9 +214,11 @@ class _PluginLoadRequest {
 
   _InitialSeekValues get initialSeekValues => (index: initialIndex, position: initialPosition);
 
-  void resetInitialSeekValues() {
-    initialIndex = null;
-    initialPosition = null;
+  /// Makes a seek issued before the platform loads the playlist the place to
+  /// start from.
+  void seekInitialValues({int? index, Duration? position}) {
+    initialIndex = index ?? initialIndex;
+    initialPosition = position;
   }
 
   void checkInterruption() {

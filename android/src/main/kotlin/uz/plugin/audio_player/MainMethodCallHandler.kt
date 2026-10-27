@@ -18,11 +18,11 @@ class MainMethodCallHandler(
             when (call.method) {
                 "init" -> init(call, result)
                 "disposePlayer" -> {
-                    call.argument<String>("id")?.let { players.remove(it)?.dispose() }
+                    call.argument<String>("id")?.let { players.remove(it)?.dispose(calledFromDeinit = false) }
                     result.success(emptyMap<String, Any?>())
                 }
                 "disposeAllPlayers" -> {
-                    dispose()
+                    dispose(calledFromDeinit = false)
                     result.success(emptyMap<String, Any?>())
                 }
                 else -> result.notImplemented()
@@ -58,9 +58,18 @@ class MainMethodCallHandler(
         result.success(null)
     }
 
-    fun dispose() {
+    /**
+     * Disposes every player. [calledFromDeinit] is true while the FlutterEngine is being destroyed or restarted,
+     * when no message may be sent; explicit disposal from Dart passes false.
+     */
+    fun dispose(calledFromDeinit: Boolean) {
         for (player in players.values.toList()) {
-            player.dispose()
+            // One failing player must not keep the others alive.
+            try {
+                player.dispose(calledFromDeinit)
+            } catch (e: RuntimeException) {
+                Log.e(TAG, "Failed to dispose a player", e)
+            }
         }
         players.clear()
     }

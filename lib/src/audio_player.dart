@@ -373,6 +373,10 @@ class AudioPlayer {
   /// Counts how many times [_setPlatformActive] is called.
   int _activationCount = 0;
 
+  /// Counts the playlists sent to the platform, to tell whether a playlist edit
+  /// was already included in a load that started after it.
+  int _loadNumber = 0;
+
   /// The first [AudioSource] in the playlist, if any.
   AudioSource? get audioSource => _playlist.children.firstOrNull;
 
@@ -822,7 +826,7 @@ class AudioPlayer {
       preload: preload,
       initialIndex: initialIndex,
       initialPosition: initialPosition,
-      shuffleOrder: shuffleOrder ?? DefaultShuffleOrder(),
+      shuffleOrder: shuffleOrder ?? _playlist._shuffleOrder,
     );
     await _playlist._init(audioSources, loadRequest.shuffleOrder);
     try {
@@ -958,9 +962,14 @@ class AudioPlayer {
         await source._onLoad();
         checkInterruption();
       }
-      source._shuffle(initialIndex: initialSeekValues?.index ?? 0);
+      // Only a new playlist is shuffled. Starting the platform player again
+      // (after stop or completion) keeps the order the listener has seen.
+      if (pluginLoadRequest != null) {
+        source._shuffle(initialIndex: initialSeekValues?.index ?? 0);
+      }
       await _broadcastSequence();
       checkInterruption();
+      _loadNumber++;
       _loadFuture = platform
           .load(
             LoadRequest(
@@ -1097,6 +1106,7 @@ class AudioPlayer {
     if (!playing) {
       return;
     }
+    final activationNumber = _activationCount;
     // Update local state immediately so that queries aren't surprised.
     _playerEventSubject.add(
       PlayerEvent(
@@ -1107,7 +1117,12 @@ class AudioPlayer {
     await playingStream.firstWhere((p) => p == playing);
     // TODO(SunnatilloShavkatov): perhaps modify platform side to ensure new state is broadcast
     // before this method returns.
-    await (await _platform).pause(PauseRequest());
+    final platform = await _platform;
+    // A stop or disposal may retire this platform while pause is waiting for it.
+    if (_disposed || _activationCount != activationNumber) {
+      return;
+    }
+    await platform.pause(PauseRequest());
   }
 
   Future<void> _sendPlayRequest(AudioPlayerInstancePlatform platform, Completer<void>? playCompleter) async {
@@ -1182,7 +1197,9 @@ class AudioPlayer {
     try {
       await (await _platform).setSkipSilence(SetSkipSilenceRequest(enabled: enabled));
     } catch (e) {
-      _skipSilenceEnabledSubject.add(previouslyEnabled);
+      if (!_disposed) {
+        _skipSilenceEnabledSubject.add(previouslyEnabled);
+      }
       rethrow;
     }
   }
@@ -1240,7 +1257,9 @@ class AudioPlayer {
     try {
       await (await _platform).setPitch(SetPitchRequest(pitch: pitch));
     } catch (e) {
-      _pitchSubject.add(previousPitch);
+      if (!_disposed) {
+        _pitchSubject.add(previousPitch);
+      }
       rethrow;
     }
   }
@@ -1333,7 +1352,7 @@ class AudioPlayer {
     if (_disposed) {
       return;
     }
-    _pluginLoadRequest?.resetInitialSeekValues();
+    _pluginLoadRequest?.seekInitialValues(index: index, position: position);
     if (processingState == ProcessingState.loading) {
       return;
     }
@@ -1512,6 +1531,12 @@ class AudioPlayer {
     bool checkInterruption() {
       // No interruption.
       if (!wasInterrupted()) {
+        return false;
+      }
+      if (active && !_disposed && _activationCount == activationNumber) {
+        // Only the load request was replaced. This platform is still the one
+        // the new request loads on, so keep configuring it and fail just the
+        // old request's load (see below).
         return false;
       }
       pluginLoadRequest?.checkInterruption();
@@ -1745,6 +1770,13 @@ class AudioPlayer {
 
       subscribeToEvents(platform);
 
+      if (pluginLoadRequest != _pluginLoadRequest) {
+        // The request that started this activation was replaced; the new one
+        // loads its playlist on this platform itself.
+        durationCompleter.completeError(PlayerInterruptedException('Loading interrupted'));
+        return platform;
+      }
+
       try {
         final initialSeekValues = pluginLoadRequest?.initialSeekValues ?? (index: currentIndex, position: position);
         final duration = await _load(platform, _playlist, initialSeekValues: initialSeekValues);
@@ -1817,6 +1849,16 @@ class AudioPlayer {
   /// error twice (and count it twice towards `maxSkipsOnError`). Any other
   /// error, such as a malformed event, is reported via
   /// [FlutterError.reportError].
+  /// Sends a playlist edit made while [_loadNumber] was [loadNumber] to the
+  /// platform, unless a playlist loaded since then already contains the edit.
+  Future<void> _sendEdit(int loadNumber, Future<void> Function(AudioPlayerInstancePlatform platform) send) async {
+    final platform = await _platform;
+    if (_loadNumber != loadNumber) {
+      return;
+    }
+    await send(platform);
+  }
+
   void _reportPlaybackEventError(Object error, StackTrace stackTrace) {
     if (error is PlatformException) {
       return;
@@ -1852,7 +1894,11 @@ class AudioPlayer {
   /// app's assets have changed to force assets to be re-fetched from the asset
   /// bundle.
   static Future<void> clearAssetCache() async {
-    await for (final file in (await _getCacheDir()).list()) {
+    final cacheDir = await _getCacheDir();
+    if (!cacheDir.existsSync()) {
+      return;
+    }
+    await for (final file in cacheDir.list()) {
       await file.delete(recursive: true);
     }
   }
@@ -1862,7 +1908,10 @@ class AudioPlayer {
 
   Exception _convertException(PlatformException e) {
     const kInterruptedErrorCode = 10000000;
-    final details = (e.details as Map<dynamic, dynamic>?)?.cast<String, dynamic>();
+    final details = switch (e.details) {
+      final Map<dynamic, dynamic> map => map.cast<String, dynamic>(),
+      _ => null,
+    };
     final index = details?['index'] as int? ?? currentIndex;
     final code = int.tryParse(e.code);
     if (code == null) {

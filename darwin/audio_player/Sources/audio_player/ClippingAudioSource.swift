@@ -52,7 +52,7 @@ final class ClippingAudioSource: IndexedAudioSource {
     }
 
     override func preparePlayerItem2() {
-        if playerItem2 != nil { return }
+        // Also runs for a loop item that already exists (a reused child's), whose clip times may be stale.
         audioSource.preparePlayerItem2()
         guard let item = audioSource.playerItem2 else { return }
         // Prepare loop clip to start/end at the right timestamps.

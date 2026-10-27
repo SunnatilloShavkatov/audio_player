@@ -1,3 +1,28 @@
+## 2.2.0
+
+* Fix: a pending `pause()` no longer calls a retired native player when `stop()` or `dispose()` interrupts loading.
+* Fix: a native error whose `details` is a string no longer surfaces as a `TypeError` instead of a `PlayerException`.
+* Fix: `setPitch` and `setSkipSilenceEnabled` no longer write rollback values to closed streams after disposal.
+* Fix: a `seek` before the first `play()` is now where the native player starts, instead of index 0 at zero.
+* Fix: a `seek` that is dropped while loading no longer clears the initial index and position.
+* Fix: a second `setAudioSources`/`setUrl` while the first is starting no longer fails with "Loading interrupted" and leaves the player unusable.
+* Fix: playlist edits made while the native player starts are no longer applied twice on the native side.
+* Fix: the `shuffleOrder` passed to the constructor is used by `setAudioSources`.
+* Fix: `stop()` followed by `play()` keeps the shuffle order instead of reshuffling it.
+* Fix: `AudioPlayer.clearAssetCache` no longer throws when nothing was cached.
+* Fix (Android): a failed `load()` (for example an `initialIndex` out of range) no longer breaks later loads or leaks the player.
+* Fix (Android): errors complete a pending `seek()`, `seek()` to the end of the last item completes, and `seek()` with an index outside the playlist fails instead of hanging.
+* Fix (Android): `setAllowsExternalPlayback` no longer throws `MissingPluginException`.
+* Fix (Android): the position estimate is corrected when playback is suppressed or resumed, for example during a short audio focus loss.
+* Fix (Android): a bad `AudioLoadConfiguration` no longer leaves channel handlers registered.
+* Fix (Android): players disposed while the engine is destroyed or restarted no longer send messages.
+* Fix (iOS, macOS): `setAudioSources([])` and `clip()` on an already loaded URI no longer wait forever.
+* Fix (iOS, macOS): a seek to another item near that item's position no longer leaves the state `completed`, and paused seeks no longer stay in `buffering`.
+* Fix (iOS, macOS): every `seek` is answered, including superseded and failed ones and ones pending at dispose, and late seek callbacks send nothing during engine teardown.
+* Fix (iOS, macOS): `seek(null)` goes to the start of the item instead of the end; live streams still go to the live edge.
+* Fix (iOS, macOS): moving or inserting without a current item no longer reports a `currentIndex` of -1, and the duration is unknown instead of zero when there is no current source.
+* Fix (iOS, macOS): a reused loop item no longer keeps the previous clip's start and end, and ICY metadata is no longer duplicated.
+
 ## 2.1.1
 
 * Fix: `setVolume` and `setSpeed` no longer write rollback values to closed streams when disposal finishes

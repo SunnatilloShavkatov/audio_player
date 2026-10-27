@@ -23,7 +23,8 @@ class AudioPlayerPlugin : FlutterPlugin {
         }
         val listener = object : EngineLifecycleListener {
             override fun onPreEngineRestart() {
-                handler.dispose()
+                // The engine is going away: sending messages now is not allowed.
+                handler.dispose(calledFromDeinit = true)
             }
 
             override fun onEngineWillDestroy() {}
@@ -44,7 +45,8 @@ class AudioPlayerPlugin : FlutterPlugin {
         channel?.setMethodCallHandler(null)
         channel = null
 
-        methodCallHandler?.dispose()
+        // The engine is being destroyed: sending messages now is not allowed.
+        methodCallHandler?.dispose(calledFromDeinit = true)
         methodCallHandler = null
     }
 }

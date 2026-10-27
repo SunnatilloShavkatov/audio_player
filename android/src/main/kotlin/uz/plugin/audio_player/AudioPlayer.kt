@@ -153,7 +153,19 @@ class AudioPlayer(
                 .build()
         }
 
+        // Parse the configuration before registering the method handler. A bad configuration throws, and the
+        // stream handlers of the channels created above must not stay registered for a player that never existed.
+        try {
+            parseAudioLoadConfiguration(audioLoadConfiguration)
+        } catch (e: Exception) {
+            eventChannel.dispose(calledFromDeinit = false)
+            dataEventChannel.dispose(calledFromDeinit = false)
+            throw e
+        }
         methodChannel.setMethodCallHandler(this)
+    }
+
+    private fun parseAudioLoadConfiguration(audioLoadConfiguration: Map<*, *>?) {
         if (audioLoadConfiguration != null) {
             val loadControlMap = audioLoadConfiguration["androidLoadControl"] as Map<*, *>?
             if (loadControlMap != null) {
@@ -192,6 +204,18 @@ class AudioPlayer(
     override fun onIsLoadingChanged(isLoading: Boolean) {
         // Starting reads the buffer position again; stopping takes a final reading.
         startWatchingBuffer()
+    }
+
+    /**
+     * While ExoPlayer is ready and `playWhenReady` is set but playback is suppressed (for example during a short
+     * audio focus loss) `isPlaying` is false and the position stands still, yet no other callback fires. Take a fresh
+     * position reading whenever that changes so Dart's position estimate does not run ahead. Other changes of
+     * `isPlaying` come with a change of `playWhenReady` or of the playback state, which report on their own.
+     */
+    override fun onIsPlayingChanged(isPlaying: Boolean) {
+        if (exoPlayer?.playWhenReady != true || processingState != ProcessingState.ready) return
+        updatePositionNow()
+        broadcastImmediatePlaybackEvent()
     }
 
     private fun updateAudioSessionId(newAudioSessionId: Int) {
@@ -338,6 +362,10 @@ class AudioPlayer(
                 startWatchingBuffer()
             }
             Player.STATE_ENDED -> {
+                // A seek to the end of the last item (loop off) ends playback instead of becoming ready.
+                if (seekResult != null) {
+                    completeSeek()
+                }
                 if (processingState != ProcessingState.completed) {
                     updatePositionNow()
                     processingState = ProcessingState.completed
@@ -466,6 +494,7 @@ class AudioPlayer(
                     result.success(emptyMap<String, Any?>())
                 }
                 "setAutomaticallyWaitsToMinimizeStalling",
+                "setAllowsExternalPlayback",
                 "setCanUseNetworkResourcesForLiveStreamingWhilePaused",
                 "setPreferredPeakBitRate" -> result.success(emptyMap<String, Any?>())
                 "seek" -> {
@@ -675,9 +704,23 @@ class AudioPlayer(
         errorCode = null
         errorMessage = null
         enqueuePlaybackEvent()
-        player.setMediaSources(mediaSources, initialIndex ?: 0, initialPosition)
-        player.setShuffleOrder(shuffleOrder)
-        player.prepare()
+        try {
+            player.setMediaSources(mediaSources, initialIndex ?: 0, initialPosition)
+            player.setShuffleOrder(shuffleOrder)
+            player.prepare()
+        } catch (e: RuntimeException) {
+            // For example IllegalSeekPositionException for an initial index out of range. The caller replies with
+            // the error, so forget the result and leave the loading state, or the next load would try to abort
+            // a request that was already answered.
+            prepareResult = null
+            player.stop()
+            processingState = ProcessingState.idle
+            updatePositionNow()
+            errorCode = null
+            errorMessage = null
+            enqueuePlaybackEvent()
+            throw e
+        }
     }
 
     private fun ensurePlayerInitialized() {
@@ -868,6 +911,12 @@ class AudioPlayer(
     }
 
     private fun sendError(errorCode: Int, errorMsg: String?, details: Any?, switchToIdle: Boolean = true) {
+        // Forget the pending results before replying: a reply that throws must not leave them behind to be
+        // answered a second time.
+        val pendingPrepare = prepareResult
+        prepareResult = null
+        // A pending seek will never finish, so complete it, or Dart waits for it forever.
+        abortSeek()
         eventChannel.error(errorCode.toString(), errorMsg, details)
         this.errorCode = errorCode
         this.errorMessage = errorMsg
@@ -875,10 +924,7 @@ class AudioPlayer(
             processingState = ProcessingState.idle
         }
         broadcastImmediatePlaybackEvent()
-        prepareResult?.let {
-            it.error(errorCode.toString(), errorMsg, details)
-            prepareResult = null
-        }
+        pendingPrepare?.error(errorCode.toString(), errorMsg, details)
     }
 
     private fun play(result: Result) {
@@ -927,11 +973,16 @@ class AudioPlayer(
             result.success(emptyMap<String, Any?>())
             return
         }
+        val targetIndex = index ?: player.currentMediaItemIndex
+        // ExoPlayer silently ignores an index outside the playlist, so the seek would never finish.
+        if (targetIndex < 0 || targetIndex >= player.mediaItemCount) {
+            throw IllegalArgumentException("Invalid index $targetIndex for a playlist of ${player.mediaItemCount} items")
+        }
         abortSeek()
         seekPos = position
         seekResult = result
         try {
-            player.seekTo(index ?: player.currentMediaItemIndex, position)
+            player.seekTo(targetIndex, position)
         } catch (e: RuntimeException) {
             seekResult = null
             seekPos = null
@@ -939,29 +990,56 @@ class AudioPlayer(
         }
     }
 
-    fun dispose() {
-        if (processingState == ProcessingState.loading) {
-            abortExistingConnection(true)
+    /**
+     * Releases the player and unregisters the channels.
+     *
+     * [calledFromDeinit] is true while the FlutterEngine is being destroyed or restarted. Then nothing may be sent
+     * (replies to pending calls, playback events, end-of-stream) and the channel handlers are left alone, because
+     * the engine drops them itself. Explicit disposal from Dart passes false and may send and unregister.
+     */
+    fun dispose(calledFromDeinit: Boolean) {
+        if (!calledFromDeinit) {
+            // A failing reply must not stop the release below, or ExoPlayer and the channels would leak.
+            try {
+                if (processingState == ProcessingState.loading) {
+                    abortExistingConnection(true)
+                }
+                val pendingPlay = playResult
+                playResult = null
+                pendingPlay?.success(emptyMap<String, Any?>())
+                abortSeek()
+            } catch (e: RuntimeException) {
+                Log.e(TAG, "Failed to reply to pending calls while disposing", e)
+            }
         }
-        playResult?.let {
-            it.success(emptyMap<String, Any?>())
-            playResult = null
-        }
-        abortSeek()
+        prepareResult = null
+        playResult = null
+        seekResult = null
+        seekPos = null
         handler.removeCallbacksAndMessages(null)
         mediaSources.clear()
         clearAudioEffects()
         exoPlayer?.let {
+            it.removeListener(this)
             it.release()
             exoPlayer = null
             processingState = ProcessingState.idle
-            broadcastImmediatePlaybackEvent()
+            if (!calledFromDeinit) {
+                try {
+                    broadcastImmediatePlaybackEvent()
+                } catch (e: RuntimeException) {
+                    Log.e(TAG, "Failed to send the final playback event", e)
+                }
+            }
         }
-        // Unregister the channels. Otherwise the messenger keeps this disposed
-        // player (and its three handlers) alive for the rest of the engine's life.
-        methodChannel.setMethodCallHandler(null)
-        eventChannel.dispose()
-        dataEventChannel.dispose()
+        pendingPlaybackEvent = null
+        if (!calledFromDeinit) {
+            // Unregister the channels. Otherwise the messenger keeps this disposed
+            // player (and its three handlers) alive for the rest of the engine's life.
+            methodChannel.setMethodCallHandler(null)
+        }
+        eventChannel.dispose(calledFromDeinit)
+        dataEventChannel.dispose(calledFromDeinit)
     }
 
     private fun abortSeek() {

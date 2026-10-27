@@ -1,6 +1,6 @@
 name: audio_player
 description: "A feature-rich audio player for Flutter. Loop, clip and sequence any sound from any source (asset/file/URL) in gapless playlists."
-version: 2.1.1
+version: 2.2.0
 repository: https://github.com/SunnatilloShavkatov/audio_player
 issue_tracker: https://github.com/SunnatilloShavkatov/audio_player/issues
 topics:

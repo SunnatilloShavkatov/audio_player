@@ -70,6 +70,14 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     private var errorMessage: String?
     // Items whose KVO and notification observers are currently registered.
     private let observedItems = NSHashTable<AVPlayerItem>.weakObjects()
+    // Per observed item (by identity): the end-of-item observer token and the ICY metadata output.
+    private var endObservers: [ObjectIdentifier: NSObjectProtocol] = [:]
+    private var metadataOutputs: [ObjectIdentifier: AVPlayerItemMetadataOutput] = [:]
+    // Incremented for every seek (and load) so that the completion of a superseded one doesn't touch current state.
+    private var seekGeneration = 0
+    // Set by dispose. Late callbacks must not touch state, and after `disposedFromDeinit` must not reply or send.
+    private var disposed = false
+    private var disposedFromDeinit = false
     // Set when an audio session interruption paused playback that should resume once the interruption ends.
     private var resumeAfterInterruption = false
     private var audioSessionObservers: [NSObjectProtocol] = []
@@ -158,7 +166,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
                 setAllowsExternalPlayback((request["allowsExternalPlayback"] as? NSNumber)?.intValue == 1)
                 result(empty)
             case "seek":
-                let position = Self.time(fromMicroseconds: request["position"]) ?? .positiveInfinity
+                let position = Self.time(fromMicroseconds: request["position"])
                 try seek(position, index: (request["index"] as? NSNumber)?.intValue) { _ in
                     result(empty)
                 }
@@ -221,10 +229,12 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         // Find all duplicates of the identified ConcatenatingAudioSource.
         var matches: [AudioSource] = []
         audioSource.findById(catId, matches: &matches)
+        // Decode for every match before changing any of them, so that an invalid source leaves them all intact.
+        let catSources = matches.compactMap { $0 as? ConcatenatingAudioSource }
+        let decodedSources = try catSources.map { _ in try decodeAudioSources(sources) }
         // Add each new source to each match.
-        for case let catSource as ConcatenatingAudioSource in matches {
+        for (catSource, newSources) in zip(catSources, decodedSources) {
             let idx = index >= 0 ? index : catSource.count
-            let newSources = try decodeAudioSources(sources)
             for (j, newSource) in newSources.enumerated() {
                 catSource.insertSource(newSource, at: idx + j)
             }
@@ -238,11 +248,8 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
             addItemObservers(source.playerItem)
         }
         updateOrder()
-        if let currentItem = player.currentItem as? IndexedPlayerItem {
-            self.index = indexForItem(currentItem)
-        } else {
-            self.index = 0
-        }
+        let currentIndex = indexForItem(player.currentItem as? IndexedPlayerItem)
+        self.index = currentIndex >= 0 ? currentIndex : clampedIndex()
         enqueueFrom(self.index)
         // Notify each new IndexedAudioSource that it's been attached to the player.
         for source in indexedAudioSources where !source.isAttached {
@@ -310,8 +317,15 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         indexedAudioSources = []
         audioSource.buildSequence(&indexedAudioSources, treeIndex: 0)
         updateOrder()
-        enqueueFrom(indexForItem(player?.currentItem as? IndexedPlayerItem))
+        // Without a current item the lookup fails; keep the old index instead of reporting -1.
+        let currentIndex = indexForItem(player?.currentItem as? IndexedPlayerItem)
+        enqueueFrom(currentIndex >= 0 ? currentIndex : clampedIndex())
         broadcastPlaybackEvent()
+    }
+
+    /// The current index limited to the existing sources (0 when there are none).
+    private func clampedIndex() -> Int {
+        min(max(index, 0), max(indexedAudioSources.count - 1, 0))
     }
 
     // MARK: - Buffering state
@@ -325,6 +339,8 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     private func leaveBuffering(_ reason: String) {
         if processingState == .buffering || processingState == .loading {
             processingState = .ready
+            // Leaving buffering confirms that enough of the current item is buffered.
+            bufferUnconfirmed = false
         }
     }
 
@@ -379,7 +395,8 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
             guard duration.isNumeric else { return -1 }
             return Self.milliseconds(of: duration)
         } else {
-            return 0
+            // No current source, so there is no known duration.
+            return -1
         }
     }
 
@@ -397,7 +414,12 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         playerItem.removeObserver(self, forKeyPath: "playbackBufferEmpty")
         playerItem.removeObserver(self, forKeyPath: "playbackBufferFull")
         playerItem.removeObserver(self, forKeyPath: "loadedTimeRanges")
-        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+        if let token = endObservers.removeValue(forKey: ObjectIdentifier(playerItem)) {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let output = metadataOutputs.removeValue(forKey: ObjectIdentifier(playerItem)) {
+            playerItem.remove(output)
+        }
     }
 
     private func addItemObservers(_ playerItem: AVPlayerItem?) {
@@ -410,19 +432,30 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         playerItem.addObserver(self, forKeyPath: "playbackBufferFull", options: .new, context: nil)
         playerItem.addObserver(self, forKeyPath: "loadedTimeRanges", options: .new, context: nil)
         // Get notified when playback has reached the end
-        NotificationCenter.default.addObserver(self, selector: #selector(onComplete(_:)), name: .AVPlayerItemDidPlayToEndTime, object: playerItem)
+        // Delivered synchronously on the posting thread, which keeps it ordered with the "currentItem" change on the
+        // main thread, but handled on the main thread whatever thread AVFoundation posts from.
+        endObservers[ObjectIdentifier(playerItem)] = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime, object: playerItem, queue: nil
+        ) { [weak self] notification in
+            if Thread.isMainThread {
+                self?.onComplete(notification)
+            } else {
+                DispatchQueue.main.async { self?.onComplete(notification) }
+            }
+        }
 
         // Only ask for the ICY identifiers that metadataOutput(_:didOutputTimedMetadataGroups:from:)
         // reads, so other timed metadata is never delivered to the main queue.
         let metadataOutput = AVPlayerItemMetadataOutput(identifiers: Self.icyMetadataIdentifiers)
         metadataOutput.setDelegate(self, queue: .main)
-        // The delegate is stored as a weak reference, so there is no retain cycle.
-        // The output is owned by the item and released with it, so there is no
-        // need to call removeOutput later.
+        // The delegate is stored as a weak reference, so there is no retain cycle. The output is removed again in
+        // removeItemObservers, so that observing an item again doesn't attach a second one (duplicate ICY events).
         playerItem.add(metadataOutput)
+        metadataOutputs[ObjectIdentifier(playerItem)] = metadataOutput
     }
 
     func metadataOutput(_ output: AVPlayerItemMetadataOutput, didOutputTimedMetadataGroups groups: [AVTimedMetadataGroup], from track: AVPlayerItemTrack?) {
+        guard !disposed else { return }
         // ICY headers aren't available here; only the timed metadata is.
         var hasIcyData = false
         var title: String?
@@ -555,6 +588,10 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         }
 
         if processingState != .loading && oldItem !== newItem {
+            // Moving to another item ends the completed state; leaveBuffering would leave it untouched.
+            if processingState == .completed {
+                processingState = .ready
+            }
             if player.currentItem?.isPlaybackBufferEmpty == true {
                 enterBuffering("enqueueFrom playbackBufferEmpty")
             } else {
@@ -569,8 +606,9 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     private func insertLoopItem(of source: IndexedAudioSource, into player: AVQueuePlayer) {
         if source.playerItem2 == nil {
             source.preparePlayerItem2()
-            addItemObservers(source.playerItem2)
         }
+        // A loop item reused from a previous load has had its observers removed.
+        addItemObservers(source.playerItem2)
         if let item = source.playerItem2 {
             player.insert(item, after: nil)
         }
@@ -609,6 +647,10 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         )
         clipper.playerItem?.audioSource = clipper
         clipper.playerItem2?.audioSource = clipper
+        if clipper.playerItem2 != nil {
+            // The reused loop item still has the previous clip's end time and position.
+            clipper.preparePlayerItem2()
+        }
         return clipper
     }
 
@@ -630,6 +672,12 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         index = initialIndex ?? 0
         errorCode = nil
         errorMessage = nil
+        // A seek from before this load is over: invalidate its completion and fail the ones still waiting for an item.
+        seekGeneration += 1
+        seekPos = .invalid
+        for indexedSource in indexedAudioSources {
+            indexedSource.cancelQueuedSeek()
+        }
         // Remove previous observers
         for indexedSource in indexedAudioSources {
             removeItemObservers(indexedSource.playerItem)
@@ -672,6 +720,8 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
 
         if loadResult != nil, indexedAudioSources.isEmpty || player.currentItem == nil || player.currentItem?.status == .readyToPlay {
             processingState = .ready
+            // Dart waits for an event that isn't loading before it completes the load.
+            broadcastPlaybackEvent()
             loadResult?(["duration": getDurationMicroseconds()])
             loadResult = nil
         } else {
@@ -698,8 +748,8 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
 
     // MARK: - Notifications
 
-    @objc private func onComplete(_ notification: Notification) {
-        guard let endedPlayerItem = notification.object as? IndexedPlayerItem else { return }
+    private func onComplete(_ notification: Notification) {
+        guard !disposed, let endedPlayerItem = notification.object as? IndexedPlayerItem else { return }
         let endedSource = endedPlayerItem.audioSource
 
         if loopMode == .one {
@@ -791,6 +841,8 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
                     // Ignoring wait signal because we reached the end
                 }
             case .playing:
+                // Audio is coming out, so the buffer is confirmed.
+                bufferUnconfirmed = false
                 leaveBuffering("timeControlStatus")
                 updatePosition()
                 broadcastPlaybackEvent()
@@ -1032,7 +1084,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         player?.allowsExternalPlayback = enabled
     }
 
-    private func seek(_ position: CMTime, index newIndex: Int?, completionHandler: @escaping (Bool) -> Void) throws {
+    private func seek(_ requestedPosition: CMTime?, index newIndex: Int?, completionHandler: @escaping (Bool) -> Void) throws {
         if processingState == .idle || processingState == .loading {
             completionHandler(false)
             return
@@ -1040,6 +1092,23 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         let targetIndex = newIndex ?? index
         guard indexedAudioSources.indices.contains(targetIndex), let currentSource else {
             throw PlayerError.invalidIndex
+        }
+        // Without a position, start at the beginning, or at the live edge when the current item is a live stream.
+        var position = CMTime.zero
+        if let requestedPosition {
+            position = requestedPosition
+        } else if targetIndex == index, let item = currentSource.playerItem,
+                  item.status == .readyToPlay, item.duration.isIndefinite {
+            position = .positiveInfinity
+        }
+        // Only the latest seek updates the player state when it completes; every seek is answered exactly once.
+        seekGeneration += 1
+        let generation = seekGeneration
+        var replied = false
+        let complete: (Bool) -> Void = { finished in
+            if replied { return }
+            replied = true
+            completionHandler(finished)
         }
         if targetIndex != index {
             // Jump to a distant item
@@ -1057,8 +1126,22 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
                 updatePosition()
                 broadcastPlaybackEvent()
                 source.seek(position) { finished in
+                    if self.disposed {
+                        // Nothing may be sent once the engine is going away; an explicit disposal still answers the call.
+                        if !self.disposedFromDeinit { complete(false) }
+                        return
+                    }
+                    guard generation == self.seekGeneration else {
+                        complete(finished)
+                        return
+                    }
                     if !self.playing {
                         // When playing, this is handled by timeControlStatus.
+                        if self.bufferUnconfirmed, source.playerItem?.status == .readyToPlay,
+                           self.player?.currentItem?.isPlaybackBufferEmpty != true {
+                            // The item is ready and has data, which confirms the buffer.
+                            self.bufferUnconfirmed = false
+                        }
                         if self.bufferUnconfirmed && self.player?.currentItem?.isPlaybackBufferFull != true {
                             // Stay in buffering
                         } else if source.playerItem?.status == .readyToPlay {
@@ -1072,7 +1155,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
                     }
                     self.seekPos = .invalid
                     self.broadcastPlaybackEvent()
-                    completionHandler(finished)
+                    complete(finished)
                 }
             } else {
                 seekPos = .invalid
@@ -1083,7 +1166,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
                     player?.rate = speed
                 }
                 broadcastPlaybackEvent()
-                completionHandler(true)
+                complete(true)
             }
         } else {
             // Seek within an item
@@ -1097,6 +1180,15 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
             updatePosition()
             broadcastPlaybackEvent()
             currentSource.seek(position) { finished in
+                if self.disposed {
+                    // Nothing may be sent once the engine is going away; an explicit disposal still answers the call.
+                    if !self.disposedFromDeinit { complete(false) }
+                    return
+                }
+                guard generation == self.seekGeneration else {
+                    complete(finished)
+                    return
+                }
                 self.updatePosition()
                 if self.playing {
                     // If playing, buffering will be detected by timeControlStatus.
@@ -1121,7 +1213,7 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
                 }
                 self.seekPos = .invalid
                 self.broadcastPlaybackEvent()
-                completionHandler(finished)
+                complete(finished)
             }
         }
     }
@@ -1220,6 +1312,14 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     // MARK: - Disposal
 
     func dispose(calledFromDeinit: Bool) {
+        // Late seek and notification callbacks check these first. Seeks still waiting for an item are completed here;
+        // their closure answers the Flutter call only when this isn't called from deinit.
+        disposed = true
+        disposedFromDeinit = calledFromDeinit
+        seekGeneration += 1
+        for source in indexedAudioSources {
+            source.cancelQueuedSeek()
+        }
         for observer in audioSessionObservers {
             NotificationCenter.default.removeObserver(observer)
         }

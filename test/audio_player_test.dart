@@ -706,6 +706,38 @@ void runTests() {
     await player2.dispose();
   });
 
+  group('shuffle order lifecycle', () {
+    List<AudioSource> createSources() => [
+      for (var i = 0; i < 6; i++) AudioSource.uri(Uri.parse('https://foo.foo/$i.mp3'), tag: '$i'),
+    ];
+
+    test('the constructor shuffle order is used by setAudioSources', () async {
+      final expected = AudioPlayer();
+      addTearDown(expected.dispose);
+      await expected.setAudioSources(createSources(), shuffleOrder: DefaultShuffleOrder(random: Random(1001)));
+      final player = AudioPlayer(shuffleOrder: DefaultShuffleOrder(random: Random(1001)));
+      addTearDown(player.dispose);
+      await player.setAudioSources(createSources());
+      expect(player.shuffleIndices, equals(expected.shuffleIndices));
+    });
+
+    test('stop and play keep the shuffle order', () async {
+      final player = AudioPlayer(shuffleOrder: DefaultShuffleOrder(random: Random(7)));
+      addTearDown(player.dispose);
+      await player.setAudioSources(createSources());
+      await player.setShuffleModeEnabled(enabled: true);
+      await player.seek(Duration.zero, index: 3);
+      await player.shuffle();
+      final order = [...player.shuffleIndices];
+      await player.stop();
+      final play = player.play();
+      await player.processingStateStream.firstWhere((state) => state == ProcessingState.ready);
+      expect(player.shuffleIndices, equals(order));
+      await player.pause();
+      await play;
+    });
+  });
+
   test('seekToIndex', () async {
     final sources = [
       AudioSource.uri(Uri.parse('https://bar.bar/foo.mp3'), tag: 'foo'),
@@ -1296,7 +1328,7 @@ void runTests() {
   });
 
   group('setting rollback lifecycle', () {
-    for (final setting in ['volume', 'speed']) {
+    for (final setting in ['volume', 'speed', 'pitch', 'skipSilence']) {
       for (final disposeBeforeFailure in [false, true]) {
         test('$setting preserves platform error after failure, disposed=$disposeBeforeFailure', () async {
           final requestReached = Completer<void>();
@@ -1312,18 +1344,27 @@ void runTests() {
 
           mock
             ..onSetVolume = setting == 'volume' ? handleRequest : null
-            ..onSetSpeed = setting == 'speed' ? handleRequest : null;
+            ..onSetSpeed = setting == 'speed' ? handleRequest : null
+            ..onSetPitch = setting == 'pitch' ? handleRequest : null
+            ..onSetSkipSilence = setting == 'skipSilence' ? handleRequest : null;
           addTearDown(() {
             mock
               ..onSetVolume = null
-              ..onSetSpeed = null;
+              ..onSetSpeed = null
+              ..onSetPitch = null
+              ..onSetSkipSilence = null;
           });
           final player = AudioPlayer();
           addTearDown(player.dispose);
           await player.setUrl('https://foo.foo/foo.mp3');
           armed = true;
           final error = PlatformException(code: 'error', message: '$setting failed');
-          final request = setting == 'volume' ? player.setVolume(0.5) : player.setSpeed(1.5);
+          final request = switch (setting) {
+            'volume' => player.setVolume(0.5),
+            'speed' => player.setSpeed(1.5),
+            'pitch' => player.setPitch(1.5),
+            _ => player.setSkipSilenceEnabled(enabled: true),
+          };
           final expectation = expectLater(request, throwsA(same(error)));
           await requestReached.future;
           if (disposeBeforeFailure) {
@@ -1332,11 +1373,189 @@ void runTests() {
           response.completeError(error);
           await expectation;
           if (!disposeBeforeFailure) {
-            expect(setting == 'volume' ? player.volume : player.speed, equals(1.0));
+            expect(switch (setting) {
+              'volume' => player.volume,
+              'speed' => player.speed,
+              'pitch' => player.pitch,
+              _ => player.skipSilenceEnabled,
+            }, equals(setting == 'skipSilence' ? false : 1.0));
           }
         });
       }
     }
+  });
+
+  group('pause lifecycle', () {
+    for (final dispose in [false, true]) {
+      test('pause does not use a retired platform, dispose=$dispose', () async {
+        mock.onInit = (platform) => platform.blockLoad();
+        addTearDown(() => mock.onInit = null);
+        final player = AudioPlayer();
+        addTearDown(player.dispose);
+        final load = player.setUrl('https://foo.foo/foo.mp3');
+        final loadExpectation = expectLater(load, throwsA(isA<PlayerInterruptedException>()));
+        await player.processingStateStream.firstWhere((state) => state == ProcessingState.loading);
+        await Future<void>.delayed(Duration.zero);
+        final native = mock.mostRecentPlayer!;
+        final play = player.play();
+        final pause = player.pause();
+        final pauseExpectation = expectLater(pause, completes);
+        await Future<void>.delayed(Duration.zero);
+        if (dispose) {
+          await player.dispose();
+        } else {
+          await player.stop();
+        }
+        native.unblockLoad();
+        await loadExpectation;
+        await pauseExpectation;
+        await play;
+        expect(player.playing, isFalse);
+      });
+    }
+
+    test('pause still reports errors from the current platform', () async {
+      final player = AudioPlayer();
+      addTearDown(player.dispose);
+      await player.setUrl('https://foo.foo/foo.mp3');
+      final native = mock.mostRecentPlayer!;
+      final error = PlatformException(code: 'pause-failed');
+      native.pauseError = error;
+      final play = player.play();
+      await expectLater(player.pause(), throwsA(same(error)));
+      await play;
+    });
+  });
+
+  group('native error details', () {
+    test('a string details value still becomes a PlayerException', () async {
+      mock.onInit = (platform) => platform.loadError = PlatformException(
+        code: 'error',
+        message: 'Error in load',
+        details: 'IllegalStateException: boom',
+      );
+      addTearDown(() => mock.onInit = null);
+      final player = AudioPlayer();
+      addTearDown(player.dispose);
+      await expectLater(
+        player.setUrl('https://foo.foo/foo.mp3'),
+        throwsA(isA<PlayerException>().having((e) => e.message, 'message', 'Error in load')),
+      );
+    });
+  });
+
+  group('seek before the first play', () {
+    final sources = [
+      AudioSource.uri(Uri.parse('https://foo.foo/foo.mp3')),
+      AudioSource.uri(Uri.parse('https://bar.bar/bar.mp3')),
+      AudioSource.uri(Uri.parse('https://baz.baz/baz.mp3')),
+    ];
+
+    test('starts the native player at the sought index and position', () async {
+      final player = AudioPlayer();
+      addTearDown(player.dispose);
+      await player.setAudioSources(sources, preload: false);
+      await player.seek(const Duration(seconds: 30), index: 2);
+      final play = player.play();
+      await player.processingStateStream.firstWhere((state) => state == ProcessingState.ready);
+      final request = mock.mostRecentPlayer!.lastLoadRequest!;
+      expect(request.initialIndex, 2);
+      expect(request.initialPosition, const Duration(seconds: 30));
+      await player.pause();
+      await play;
+    });
+
+    test('keeps the initial index when a seek is dropped while loading', () async {
+      final gate = Completer<void>();
+      mock.onSetVolume = () => gate.future;
+      addTearDown(() => mock.onSetVolume = null);
+      final player = AudioPlayer();
+      addTearDown(player.dispose);
+      await player.setVolume(0.5);
+      final load = player.setAudioSources(sources, initialIndex: 2);
+      final loadExpectation = expectLater(load, completes);
+      await player.processingStateStream.firstWhere((state) => state == ProcessingState.loading);
+      await player.seek(const Duration(seconds: 5));
+      gate.complete();
+      await loadExpectation;
+      expect(mock.mostRecentPlayer!.lastLoadRequest!.initialIndex, 2);
+    });
+  });
+
+  group('interrupted startup', () {
+    test('a second setUrl while the first starts leaves the player usable', () async {
+      final gate = mock.initGate = Completer<void>();
+      addTearDown(() => mock.initGate = null);
+      final player = AudioPlayer();
+      addTearDown(player.dispose);
+      final first = player.setUrl('https://foo.foo/first.mp3');
+      final firstExpectation = expectLater(first, throwsA(isA<PlayerInterruptedException>()));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      final second = player.setUrl('https://foo.foo/second.mp3');
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      gate.complete();
+      await firstExpectation;
+      await second;
+      await player.setVolume(0.5);
+      await player.seek(const Duration(seconds: 1));
+      final play = player.play();
+      await player.pause();
+      await play;
+      expect(player.volume, 0.5);
+    });
+  });
+
+  group('playlist edits during startup', () {
+    List<AudioSource> sources(int count) => [
+      for (var i = 0; i < count; i++) AudioSource.uri(Uri.parse('https://foo.foo/$i.mp3'), tag: '$i'),
+    ];
+
+    Future<AudioPlayer> startWithGate(int count, Completer<void> gate) async {
+      mock.initGate = gate;
+      addTearDown(() => mock.initGate = null);
+      final player = AudioPlayer();
+      addTearDown(player.dispose);
+      await player.setAudioSources(sources(count), preload: false);
+      unawaited(player.play());
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      return player;
+    }
+
+    int loadedChildren() =>
+        (mock.mostRecentPlayer!.lastLoadRequest!.audioSourceMessage as ConcatenatingAudioSourceMessage).children.length;
+
+    test('an added source is not sent again after the load that includes it', () async {
+      final gate = Completer<void>();
+      final player = await startWithGate(1, gate);
+      final add = player.addAudioSource(AudioSource.uri(Uri.parse('https://foo.foo/added.mp3'), tag: 'added'));
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      gate.complete();
+      await add;
+      await player.processingStateStream.firstWhere((state) => state == ProcessingState.ready);
+      expect(loadedChildren(), 2);
+      expect(mock.mostRecentPlayer!.insertAllRequests, isEmpty);
+      expect(player.sequence, hasLength(2));
+    });
+
+    test('a removed source is not removed again after the load that excludes it', () async {
+      final gate = Completer<void>();
+      final player = await startWithGate(3, gate);
+      final remove = player.removeAudioSourceAt(1);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      gate.complete();
+      await remove;
+      await player.processingStateStream.firstWhere((state) => state == ProcessingState.ready);
+      expect(loadedChildren(), 2);
+      expect(mock.mostRecentPlayer!.removeRangeRequests, isEmpty);
+    });
+
+    test('an edit after the load was sent still reaches the platform', () async {
+      final player = AudioPlayer();
+      addTearDown(player.dispose);
+      await player.setAudioSources(sources(1));
+      await player.addAudioSource(AudioSource.uri(Uri.parse('https://foo.foo/added.mp3')));
+      expect(mock.mostRecentPlayer!.insertAllRequests, hasLength(1));
+    });
   });
 
   group('activation failure', () {
@@ -1414,9 +1633,13 @@ void runTests() {
 class MockAudioPlayerPlatform extends Mock with MockPlatformInterfaceMixin implements AudioPlayerPlatform {
   MockAudioPlayer? mostRecentPlayer;
   final _players = <String, MockAudioPlayer>{};
+  void Function(MockAudioPlayer)? onInit;
 
   /// When set, the next [init] call fails with this error.
   Exception? initError;
+
+  /// When set, [init] waits for this to complete before creating the player.
+  Completer<void>? initGate;
 
   /// Called by [MockAudioPlayer.setVolume] of the players created from now on.
   Future<void> Function()? onSetVolume;
@@ -1424,8 +1647,15 @@ class MockAudioPlayerPlatform extends Mock with MockPlatformInterfaceMixin imple
   /// Called by [MockAudioPlayer.setSpeed] of newly created players.
   Future<void> Function()? onSetSpeed;
 
+  /// Called by [MockAudioPlayer.setPitch] of newly created players.
+  Future<void> Function()? onSetPitch;
+
+  /// Called by [MockAudioPlayer.setSkipSilence] of newly created players.
+  Future<void> Function()? onSetSkipSilence;
+
   @override
   Future<AudioPlayerInstancePlatform> init(InitRequest request) async {
+    await initGate?.future;
     final error = initError;
     if (error != null) {
       initError = null;
@@ -1434,7 +1664,14 @@ class MockAudioPlayerPlatform extends Mock with MockPlatformInterfaceMixin imple
     if (_players.containsKey(request.id)) {
       throw PlatformException(code: 'error', message: 'Platform player ${request.id} already exists');
     }
-    final player = MockAudioPlayer(request, onSetVolume: onSetVolume, onSetSpeed: onSetSpeed);
+    final player = MockAudioPlayer(
+      request,
+      onSetVolume: onSetVolume,
+      onSetSpeed: onSetSpeed,
+      onSetPitch: onSetPitch,
+      onSetSkipSilence: onSetSkipSilence,
+    );
+    onInit?.call(player);
     _players[request.id] = player;
     mostRecentPlayer = player;
     return player;
@@ -1477,12 +1714,24 @@ final icyMetadataMessage = IcyMetadataMessage(
 );
 
 class MockAudioPlayer extends AudioPlayerInstancePlatform {
-  new(this.initRequest, {this.onSetVolume, this.onSetSpeed})
+  new(this.initRequest, {this.onSetVolume, this.onSetSpeed, this.onSetPitch, this.onSetSkipSilence})
     : audioLoadConfiguration = initRequest.audioLoadConfiguration,
       super(initRequest.id);
   final InitRequest initRequest;
   final Future<void> Function()? onSetVolume;
   final Future<void> Function()? onSetSpeed;
+  final Future<void> Function()? onSetPitch;
+  final Future<void> Function()? onSetSkipSilence;
+
+  /// The most recent [load] request.
+  LoadRequest? lastLoadRequest;
+
+  /// The playlist edits received so far.
+  final insertAllRequests = <ConcatenatingInsertAllRequest>[];
+  final removeRangeRequests = <ConcatenatingRemoveRangeRequest>[];
+
+  /// When set, [load] fails with this error.
+  Exception? loadError;
 
   /// The names of the audio effect and Android-only methods called so far.
   final audioEffectCalls = <String>[];
@@ -1504,6 +1753,8 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
   int? _errorCode;
   String? _errorMessage;
   Completer<void>? _loadBlock;
+  bool _disposed = false;
+  Exception? pauseError;
 
   @override
   Stream<PlayerDataMessage> get playerDataMessageStream => dataMessageController.stream;
@@ -1544,6 +1795,10 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   @override
   Future<LoadResponse> load(LoadRequest request) async {
+    lastLoadRequest = request;
+    if (loadError case final error?) {
+      throw error;
+    }
     _loadRequest?.interrupted = true;
     final loadRequest = _loadRequest = MockLoadRequest();
     final playlist = request.audioSourceMessage as ConcatenatingAudioSourceMessage;
@@ -1616,6 +1871,12 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   @override
   Future<PauseResponse> pause(PauseRequest request) async {
+    if (_disposed) {
+      throw MissingPluginException('No implementation found for method pause on disposed player $id');
+    }
+    if (pauseError case final error?) {
+      throw error;
+    }
     if (!_playing) {
       return PauseResponse();
     }
@@ -1678,10 +1939,16 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
   }
 
   @override
-  Future<SetPitchResponse> setPitch(SetPitchRequest request) async => SetPitchResponse();
+  Future<SetPitchResponse> setPitch(SetPitchRequest request) async {
+    await onSetPitch?.call();
+    return SetPitchResponse();
+  }
 
   @override
-  Future<SetSkipSilenceResponse> setSkipSilence(SetSkipSilenceRequest request) async => SetSkipSilenceResponse();
+  Future<SetSkipSilenceResponse> setSkipSilence(SetSkipSilenceRequest request) async {
+    await onSetSkipSilence?.call();
+    return SetSkipSilenceResponse();
+  }
 
   @override
   Future<SetVolumeResponse> setVolume(SetVolumeRequest request) async {
@@ -1691,6 +1958,7 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   @override
   Future<DisposeResponse> dispose(DisposeRequest request) async {
+    _disposed = true;
     await Future<dynamic>.delayed(const Duration(milliseconds: 10));
     _processingState = ProcessingStateMessage.idle;
     _errorCode = null;
@@ -1702,8 +1970,10 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   // TODO(SunnatilloShavkatov): Update the mock playlist for this request.
   @override
-  Future<ConcatenatingInsertAllResponse> concatenatingInsertAll(ConcatenatingInsertAllRequest request) async =>
-      ConcatenatingInsertAllResponse();
+  Future<ConcatenatingInsertAllResponse> concatenatingInsertAll(ConcatenatingInsertAllRequest request) async {
+    insertAllRequests.add(request);
+    return ConcatenatingInsertAllResponse();
+  }
 
   // TODO(SunnatilloShavkatov): Update the mock playlist for this request.
   @override
@@ -1712,8 +1982,10 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   // TODO(SunnatilloShavkatov): Update the mock playlist for this request.
   @override
-  Future<ConcatenatingRemoveRangeResponse> concatenatingRemoveRange(ConcatenatingRemoveRangeRequest request) async =>
-      ConcatenatingRemoveRangeResponse();
+  Future<ConcatenatingRemoveRangeResponse> concatenatingRemoveRange(ConcatenatingRemoveRangeRequest request) async {
+    removeRangeRequests.add(request);
+    return ConcatenatingRemoveRangeResponse();
+  }
 
   void _broadcastPlaybackEvent() {
     String? url;

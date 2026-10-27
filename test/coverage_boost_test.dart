@@ -321,6 +321,15 @@ void main() {
       expect(dummyFile.existsSync(), isFalse);
     });
 
+    test('AudioPlayer clearAssetCache does nothing before anything was cached', () async {
+      final cacheDir = Directory('${mockTempDir.path}/audio_player_cache');
+      if (cacheDir.existsSync()) {
+        await cacheDir.delete(recursive: true);
+      }
+
+      await expectLater(AudioPlayer.clearAssetCache(), completes);
+    });
+
     test('AudioPlayer pre-set settings synchronization during activate', () async {
       final player = AudioPlayer();
       // Configure settings while inactive
