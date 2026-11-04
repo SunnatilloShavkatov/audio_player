@@ -41,6 +41,19 @@ void main() {
     expectNear(player.duration, _toneDuration);
   });
 
+  testWidgets('Android source errors include the native code and cause', (_) async {
+    final directory = await Directory.systemTemp.createTemp('audio_player_error_');
+    addTearDown(() => directory.delete(recursive: true));
+    final errorMatcher = isA<PlayerException>()
+        .having((error) => error.code, 'legacy source error type', 0)
+        .having((error) => error.message, 'native error code', contains('ERROR_CODE_IO_FILE_NOT_FOUND (2005)'))
+        .having((error) => error.message, 'native cause', contains('FileNotFoundException'));
+    final errorEvent = expectLater(player.errorStream, emits(errorMatcher)).timeout(_timeout);
+
+    await expectLater(player.setFilePath('${directory.path}/missing.mp3').timeout(_timeout), throwsA(errorMatcher));
+    await errorEvent;
+  }, skip: !Platform.isAndroid);
+
   testWidgets('plays, pauses and resumes', (_) async {
     await player.setAsset(_tone).timeout(_timeout);
     final playing = player.play();

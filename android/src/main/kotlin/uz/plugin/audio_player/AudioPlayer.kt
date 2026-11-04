@@ -410,23 +410,18 @@ class AudioPlayer(
     }
 
     override fun onPlayerError(error: PlaybackException) {
-        if (error is ExoPlaybackException) {
-            when (error.type) {
-                ExoPlaybackException.TYPE_SOURCE ->
-                    Log.e(TAG, "TYPE_SOURCE: " + error.sourceException.message)
-                ExoPlaybackException.TYPE_RENDERER ->
-                    Log.e(TAG, "TYPE_RENDERER: " + error.rendererException.message)
-                ExoPlaybackException.TYPE_UNEXPECTED ->
-                    Log.e(TAG, "TYPE_UNEXPECTED: " + error.unexpectedException.message)
-                // unexpectedException may only be read for TYPE_UNEXPECTED.
-                else ->
-                    Log.e(TAG, "default ExoPlaybackException: " + error.message)
+        val message = buildString {
+            append(error.message ?: "Playback error")
+            append(" [${error.errorCodeName} (${error.errorCode})]")
+            // Dart reporters cannot read Logcat, so preserve the native cause chain in the message.
+            generateSequence(error.cause) { it.cause }.take(8).forEach { cause ->
+                append(" <- ${cause.javaClass.name}: ${cause.message.orEmpty().take(512)}")
             }
-            sendError(error.type, error.message, mapOf("index" to currentIndex))
-        } else {
-            Log.e(TAG, "default PlaybackException: " + error.message)
-            sendError(error.errorCode, error.message, mapOf("index" to currentIndex))
         }
+        Log.e(TAG, message, error)
+        // Keep the public numeric code compatible with existing PlayerException handlers.
+        val code = if (error is ExoPlaybackException) error.type else error.errorCode
+        sendError(code, message, mapOf("index" to currentIndex))
     }
 
     private fun completeSeek() {

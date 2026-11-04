@@ -1,3 +1,9 @@
+## 2.2.2
+
+* Android playback errors now include the Media3 error code/name and up to eight native causes in
+  `PlayerException.message`, including on `errorStream`, so remote crash reports can distinguish source failures.
+  Existing numeric `PlayerException.code` values are unchanged.
+
 ## 2.2.1
 
 * Fix: `play()` no longer sends a play request to a retired native player (`MissingPluginException`) when `stop()`, `dispose()` or a newer load interrupts it.

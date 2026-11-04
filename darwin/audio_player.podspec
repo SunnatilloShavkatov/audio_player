@@ -3,7 +3,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'audio_player'
-  s.version          = '2.2.1'
+  s.version          = '2.2.2'
   s.summary          = 'Flutter audio player'
   s.description      = <<-DESC
 A flutter plugin for playing audio.

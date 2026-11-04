@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "uz.plugin.audio_player"
-version = "2.2.1"
+version = "2.2.2"
 
 android {
     namespace = "uz.plugin.audio_player"
