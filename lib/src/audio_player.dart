@@ -32,7 +32,7 @@ AudioPlayerPlatform get _pluginPlatform {
   // FlutterEngine...
   if (_pluginPlatformCache == null) {
     // Dispose of all existing players within this FlutterEngine. This helps to
-    // shut down existing players on a hot restart. TODO: Remove this hack once
+    // shut down existing players on a hot restart. This is a workaround until
     // https://github.com/flutter/flutter/issues/10437 is implemented.
     // Silently ignore if a platform doesn't support this method, whether it
     // throws synchronously or the returned future fails.
@@ -1077,16 +1077,25 @@ class AudioPlayer {
             }
           }),
     );
-    // TODO(SunnatilloShavkatov): rewrite this to more cleanly handle simultaneous load/play
-    // requests which each may result in platform play requests.
+    // A load and a play request may run at the same time and each may end up
+    // sending a platform play request. That is safe: the native players ignore
+    // a play request while already playing, and a platform retired in between
+    // by a stop, disposal or newer activation is skipped.
     // If there is nothing to play yet, a later load starts playback.
     if (_playlist.children.isNotEmpty) {
       if (_active) {
         // If the native platform is already active, send it a play request.
-        // NOTE: If a load() request happens simultaneously, this may result
-        // in two play requests being sent. The platform implementation should
-        // ignore the second play request since it is already playing.
-        unawaited(_sendPlayRequest(await _platform, playCompleter));
+        unawaited(
+          _activePlatform().then((platform) {
+            if (platform != null) {
+              return _sendPlayRequest(platform, playCompleter);
+            }
+            // The platform was retired, so no play request will be answered.
+            if (!playCompleter.isCompleted) {
+              playCompleter.complete();
+            }
+          }),
+        );
       } else {
         // If the native platform wasn't already active, activating it will
         // implicitly restore the playing state and send a play request. If
@@ -1115,14 +1124,28 @@ class AudioPlayer {
     );
     // Allow propagation to secondary streams.
     await playingStream.firstWhere((p) => p == playing);
-    // TODO(SunnatilloShavkatov): perhaps modify platform side to ensure new state is broadcast
-    // before this method returns.
+    // The local state above is already broadcast, so callers see the new state
+    // before the platform confirms the pause.
     final platform = await _platform;
     // A stop or disposal may retire this platform while pause is waiting for it.
     if (_disposed || _activationCount != activationNumber) {
       return;
     }
     await platform.pause(PauseRequest());
+  }
+
+  /// Waits for the current platform, or returns `null` if a stop, disposal or
+  /// newer activation retired it meanwhile. A retired native player no longer
+  /// handles method calls, so sending one fails with a `MissingPluginException`.
+  /// Skipping is safe for settings: the state is already updated and every new
+  /// activation applies it to its platform.
+  Future<AudioPlayerInstancePlatform?> _activePlatform() async {
+    final activationNumber = _activationCount;
+    final platform = await _platform;
+    if (_disposed || _activationCount != activationNumber) {
+      return null;
+    }
+    return platform;
   }
 
   Future<void> _sendPlayRequest(AudioPlayerInstancePlatform platform, Completer<void>? playCompleter) async {
@@ -1174,7 +1197,7 @@ class AudioPlayer {
     final previousVolume = this.volume;
     _volumeSubject.add(volume);
     try {
-      await (await _platform).setVolume(SetVolumeRequest(volume: volume));
+      await (await _activePlatform())?.setVolume(SetVolumeRequest(volume: volume));
     } catch (e) {
       if (!_disposed) {
         _volumeSubject.add(previousVolume);
@@ -1195,7 +1218,7 @@ class AudioPlayer {
     }
     _skipSilenceEnabledSubject.add(enabled);
     try {
-      await (await _platform).setSkipSilence(SetSkipSilenceRequest(enabled: enabled));
+      await (await _activePlatform())?.setSkipSilence(SetSkipSilenceRequest(enabled: enabled));
     } catch (e) {
       if (!_disposed) {
         _skipSilenceEnabledSubject.add(previouslyEnabled);
@@ -1227,7 +1250,7 @@ class AudioPlayer {
     final previousSpeed = this.speed;
     _speedSubject.add(speed);
     try {
-      await (await _platform).setSpeed(SetSpeedRequest(speed: speed));
+      await (await _activePlatform())?.setSpeed(SetSpeedRequest(speed: speed));
     } catch (e) {
       if (!_disposed) {
         _speedSubject.add(previousSpeed);
@@ -1255,7 +1278,7 @@ class AudioPlayer {
     final previousPitch = this.pitch;
     _pitchSubject.add(pitch);
     try {
-      await (await _platform).setPitch(SetPitchRequest(pitch: pitch));
+      await (await _activePlatform())?.setPitch(SetPitchRequest(pitch: pitch));
     } catch (e) {
       if (!_disposed) {
         _pitchSubject.add(previousPitch);

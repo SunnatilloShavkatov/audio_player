@@ -1201,18 +1201,44 @@ void runTests() {
 
   test('loadConfiguration', () async {
     const audioLoadConfiguration = AudioLoadConfiguration(
-      darwinLoadControl: DarwinLoadControl(),
-      androidLoadControl: AndroidLoadControl(),
-      androidLivePlaybackSpeedControl: AndroidLivePlaybackSpeedControl(),
+      darwinLoadControl: DarwinLoadControl(
+        automaticallyWaitsToMinimizeStalling: false,
+        preferredForwardBufferDuration: Duration(seconds: 7),
+        canUseNetworkResourcesForLiveStreamingWhilePaused: true,
+      ),
+      androidLoadControl: AndroidLoadControl(
+        minBufferDuration: Duration(seconds: 20),
+        maxBufferDuration: Duration(seconds: 40),
+        bufferForPlaybackDuration: Duration(seconds: 1),
+        bufferForPlaybackAfterRebufferDuration: Duration(seconds: 3),
+        prioritizeTimeOverSizeThresholds: true,
+        backBufferDuration: Duration(seconds: 2),
+      ),
+      androidLivePlaybackSpeedControl: AndroidLivePlaybackSpeedControl(
+        fallbackMinPlaybackSpeed: 0.9,
+        fallbackMaxPlaybackSpeed: 1.1,
+        minUpdateInterval: Duration(seconds: 2),
+      ),
     );
     final player = AudioPlayer(audioLoadConfiguration: audioLoadConfiguration);
     await player.setUrl('https://foo.foo/foo.mp3');
     final platformPlayer = mock.mostRecentPlayer!;
-    expect(
-      platformPlayer.audioLoadConfiguration?.darwinLoadControl?.automaticallyWaitsToMinimizeStalling,
-      equals(audioLoadConfiguration.darwinLoadControl?.automaticallyWaitsToMinimizeStalling),
-    );
-    // TODO(SunnatilloShavkatov): check other fields.
+    final config = platformPlayer.audioLoadConfiguration!;
+    final darwin = config.darwinLoadControl!;
+    expect(darwin.automaticallyWaitsToMinimizeStalling, isFalse);
+    expect(darwin.preferredForwardBufferDuration, equals(const Duration(seconds: 7)));
+    expect(darwin.canUseNetworkResourcesForLiveStreamingWhilePaused, isTrue);
+    final android = config.androidLoadControl!;
+    expect(android.minBufferDuration, equals(const Duration(seconds: 20)));
+    expect(android.maxBufferDuration, equals(const Duration(seconds: 40)));
+    expect(android.bufferForPlaybackDuration, equals(const Duration(seconds: 1)));
+    expect(android.bufferForPlaybackAfterRebufferDuration, equals(const Duration(seconds: 3)));
+    expect(android.prioritizeTimeOverSizeThresholds, isTrue);
+    expect(android.backBufferDuration, equals(const Duration(seconds: 2)));
+    final live = config.androidLivePlaybackSpeedControl!;
+    expect(live.fallbackMinPlaybackSpeed, equals(0.9));
+    expect(live.fallbackMaxPlaybackSpeed, equals(1.1));
+    expect(live.minUpdateInterval, equals(const Duration(seconds: 2)));
     await player.dispose();
   });
 
@@ -1425,6 +1451,40 @@ void runTests() {
       await expectLater(player.pause(), throwsA(same(error)));
       await play;
     });
+  });
+
+  group('setting lifecycle', () {
+    for (final setting in ['volume', 'speed', 'pitch', 'skipSilence']) {
+      for (final dispose in [false, true]) {
+        test('$setting does not use a retired platform, dispose=$dispose', () async {
+          mock.onInit = (platform) => platform.blockLoad();
+          addTearDown(() => mock.onInit = null);
+          final player = AudioPlayer();
+          addTearDown(player.dispose);
+          final load = player.setUrl('https://foo.foo/foo.mp3');
+          final loadExpectation = expectLater(load, throwsA(isA<PlayerInterruptedException>()));
+          await player.processingStateStream.firstWhere((state) => state == ProcessingState.loading);
+          await Future<void>.delayed(Duration.zero);
+          final native = mock.mostRecentPlayer!;
+          final request = switch (setting) {
+            'volume' => player.setVolume(0.5),
+            'speed' => player.setSpeed(1.5),
+            'pitch' => player.setPitch(1.5),
+            _ => player.setSkipSilenceEnabled(enabled: true),
+          };
+          final requestExpectation = expectLater(request, completes);
+          await Future<void>.delayed(Duration.zero);
+          if (dispose) {
+            await player.dispose();
+          } else {
+            await player.stop();
+          }
+          native.unblockLoad();
+          await loadExpectation;
+          await requestExpectation;
+        });
+      }
+    }
   });
 
   group('native error details', () {
@@ -1823,8 +1883,7 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
     } else if (audioSource is ClippingAudioSourceMessage) {
       _duration = (audioSource.end ?? audioSourceDuration) - (audioSource.start ?? Duration.zero);
     } else {
-      // TODO(SunnatilloShavkatov): pull the sequence out of the audio source and return the duration
-      // of the first item in the sequence.
+      // The mock reports the configured duration for every other source type.
       _duration = audioSourceDuration;
     }
     _audioSource = audioSource;
@@ -1932,6 +1991,7 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   @override
   Future<SetSpeedResponse> setSpeed(SetSpeedRequest request) async {
+    _throwIfDisposed('setSpeed');
     await onSetSpeed?.call();
     _speed = request.speed;
     _setPosition(_position);
@@ -1940,20 +2000,29 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   @override
   Future<SetPitchResponse> setPitch(SetPitchRequest request) async {
+    _throwIfDisposed('setPitch');
     await onSetPitch?.call();
     return SetPitchResponse();
   }
 
   @override
   Future<SetSkipSilenceResponse> setSkipSilence(SetSkipSilenceRequest request) async {
+    _throwIfDisposed('setSkipSilence');
     await onSetSkipSilence?.call();
     return SetSkipSilenceResponse();
   }
 
   @override
   Future<SetVolumeResponse> setVolume(SetVolumeRequest request) async {
+    _throwIfDisposed('setVolume');
     await onSetVolume?.call();
     return SetVolumeResponse();
+  }
+
+  void _throwIfDisposed(String method) {
+    if (_disposed) {
+      throw MissingPluginException('No implementation found for method $method on disposed player $id');
+    }
   }
 
   @override
@@ -1968,19 +2037,17 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
     return DisposeResponse();
   }
 
-  // TODO(SunnatilloShavkatov): Update the mock playlist for this request.
+  // The mock records the request without modeling the playlist.
   @override
   Future<ConcatenatingInsertAllResponse> concatenatingInsertAll(ConcatenatingInsertAllRequest request) async {
     insertAllRequests.add(request);
     return ConcatenatingInsertAllResponse();
   }
 
-  // TODO(SunnatilloShavkatov): Update the mock playlist for this request.
   @override
   Future<ConcatenatingMoveResponse> concatenatingMove(ConcatenatingMoveRequest request) async =>
       ConcatenatingMoveResponse();
 
-  // TODO(SunnatilloShavkatov): Update the mock playlist for this request.
   @override
   Future<ConcatenatingRemoveRangeResponse> concatenatingRemoveRange(ConcatenatingRemoveRangeRequest request) async {
     removeRangeRequests.add(request);

@@ -422,7 +422,6 @@ class AudioPlayer(
                 else ->
                     Log.e(TAG, "default ExoPlaybackException: " + error.message)
             }
-            // TODO: send both errorCode and type
             sendError(error.type, error.message, mapOf("index" to currentIndex))
         } else {
             Log.e(TAG, "default PlaybackException: " + error.message)

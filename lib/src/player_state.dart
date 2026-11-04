@@ -65,7 +65,6 @@ class PlaybackEvent {
   final IcyMetadata? icyMetadata;
 
   /// The index of the currently playing item, or `null` if no item is selected.
-  // TODO(SunnatilloShavkatov): Consider introducing currentAudioSourceId
   final int? currentIndex;
 
   /// The current Android AudioSession ID if set.

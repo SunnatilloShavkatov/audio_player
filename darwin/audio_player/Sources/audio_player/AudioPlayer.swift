@@ -30,8 +30,6 @@ private enum PlayerError: Error {
     case invalidArgument
 }
 
-// TODO: Check for and report invalid state transitions.
-// TODO: Apply Apple's guidance on seeking: https://developer.apple.com/library/archive/qa/qa1820/_index.html
 final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
     private let methodChannel: FlutterMethodChannel
     private let eventChannel: BetterEventChannel
@@ -366,7 +364,6 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
 
     private func getCurrentPosition() -> Int {
         // XXX: During load, the second case will be selected returning 0.
-        // TODO: Provide a similar case as seekPos for _initialPos.
         if seekPos.isValid {
             return Self.milliseconds(of: seekPos)
         } else if let source = currentSource {
@@ -537,7 +534,6 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         var existingItem: IndexedPlayerItem?
         let newItem = currentSource?.playerItem
         // In the first pass, preserve the old and new items.
-        // TODO: preserve as much of the treadmill as possible
         for item in player.items() {
             if item === newItem {
                 // Preserve and tag new item if it is already in the queue.
@@ -1031,7 +1027,6 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
         // - when the audio source changes
         // - when index changes
         // - when the loop mode changes.
-        // - when the shuffle order changes. (TODO)
         // - when the shuffle mode changes.
         guard let player else { return }
         if audioSource != nil && (loopMode != .off || (!order.isEmpty && orderPosition(of: index) + 1 < order.count)) {
@@ -1174,8 +1169,6 @@ final class AudioPlayer: NSObject, AVPlayerItemMetadataOutputPushDelegate {
                 player?.pause()
             }
             seekPos = position
-            // TODO: Move this into a separate method so it can also
-            // be used in skip.
             enterBuffering("seek")
             updatePosition()
             broadcastPlaybackEvent()

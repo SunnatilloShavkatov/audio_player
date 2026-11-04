@@ -31,8 +31,6 @@ abstract class AudioPlayerPlatform extends PlatformInterface {
 
   /// Platform-specific plugins should set this with their own platform-specific
   /// class that extends [AudioPlayerPlatform] when they register themselves.
-  // TODO(SunnatilloShavkatov): Extract common platform interface logic.
-  // https://github.com/flutter/flutter/issues/43368
   static set instance(AudioPlayerPlatform instance) {
     PlatformInterface.verifyToken(instance, _token);
     _instance = instance;
@@ -220,9 +218,6 @@ abstract class AudioPlayerInstancePlatform {
 /// need to broadcast new state changes for this state as such state changes
 /// will be initiated from the frontend.
 class PlayerDataMessage {
-  // TODO(SunnatilloShavkatov): Eventually move other state here?
-  // bufferedPosition, androidAudioSessionId, icyMetadata
-
   new({this.playing, this.volume, this.speed, this.pitch, this.loopMode, this.shuffleMode});
   final bool? playing;
   final double? volume;

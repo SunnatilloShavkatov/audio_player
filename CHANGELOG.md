@@ -1,3 +1,8 @@
+## 2.2.1
+
+* Fix: `play()` no longer sends a play request to a retired native player (`MissingPluginException`) when `stop()`, `dispose()` or a newer load interrupts it.
+* Fix: a pending `setVolume`, `setSpeed`, `setPitch` or `setSkipSilenceEnabled` no longer calls a retired native player (`MissingPluginException`) when `stop()` or `dispose()` interrupts loading.
+
 ## 2.2.0
 
 * Fix: a pending `pause()` no longer calls a retired native player when `stop()` or `dispose()` interrupts loading.
