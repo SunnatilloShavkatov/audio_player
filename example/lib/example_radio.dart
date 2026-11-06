@@ -2,8 +2,7 @@ import 'dart:async';
 
 import 'package:audio_player/audio_player.dart';
 import 'package:audio_player_example/common.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   runApp(const MyApp());
@@ -23,7 +22,6 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     ambiguate(WidgetsBinding.instance)!.addObserver(this);
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(statusBarColor: Colors.black));
     unawaited(_init());
   }
 
@@ -65,35 +63,40 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   }
 
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
+  Widget build(BuildContext context) => DemoApp(
+    title: 'Live radio',
     home: Scaffold(
+      appBar: AppBar(title: const Text('Live radio')),
       body: SafeArea(
-        child: SizedBox(
-          width: double.maxFinite,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              StreamBuilder<IcyMetadata?>(
-                stream: _player.icyMetadataStream,
-                builder: (context, snapshot) {
-                  final metadata = snapshot.data;
-                  final title = metadata?.info?.title ?? '';
-                  final url = metadata?.info?.url;
-                  return Column(
-                    children: [
-                      if (url != null) Image.network(url),
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Text(title, style: Theme.of(context).textTheme.titleLarge),
-                      ),
-                    ],
-                  );
-                },
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Column(
+                children: [
+                  // ICY metadata carries the current song title and, for some stations, cover art.
+                  StreamBuilder<IcyMetadata?>(
+                    stream: _player.icyMetadataStream,
+                    builder: (context, snapshot) {
+                      final metadata = snapshot.data;
+                      final title = metadata?.info?.title;
+                      return NowPlaying(
+                        title: title == null || title.isEmpty ? 'Waiting for song info…' : title,
+                        subtitle: metadata?.headers?.name ?? metadata?.headers?.genre,
+                        artworkUrl: metadata?.info?.url,
+                        placeholderIcon: Icons.radio_rounded,
+                        badge: const _LiveBadge(),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 32),
+                  PlayPauseButton(_player),
+                  const SizedBox(height: 24),
+                  PlaybackSettingsBar(_player, showSpeed: false, showPitch: false),
+                ],
               ),
-              // Display play/pause button and volume/speed sliders.
-              ControlButtons(_player),
-            ],
+            ),
           ),
         ),
       ),
@@ -101,46 +104,30 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
   );
 }
 
-/// Displays the play/pause button and volume/speed sliders.
-class ControlButtons extends StatelessWidget {
-  const new(this.player, {super.key});
-
-  final AudioPlayer player;
+/// Small "LIVE" chip shown above the station's current song.
+class _LiveBadge extends StatelessWidget {
+  const new();
 
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      /// This StreamBuilder rebuilds whenever the player state changes, which
-      /// includes the playing/paused state and also the
-      /// loading/buffering/ready state. Depending on the state we show the
-      /// appropriate button or loading indicator.
-      StreamBuilder<PlayerState>(
-        stream: player.playerStateStream,
-        builder: (context, snapshot) {
-          final playerState = snapshot.data;
-          final processingState = playerState?.processingState;
-          final playing = playerState?.playing;
-          if (processingState == ProcessingState.loading || processingState == ProcessingState.buffering) {
-            return Container(
-              margin: const EdgeInsets.all(8),
-              width: 64,
-              height: 64,
-              child: const CircularProgressIndicator(),
-            );
-          } else if (playing != true) {
-            return IconButton(icon: const Icon(Icons.play_arrow), iconSize: 64, onPressed: player.play);
-          } else if (processingState != ProcessingState.completed) {
-            return IconButton(icon: const Icon(Icons.pause), iconSize: 64, onPressed: player.pause);
-          } else {
-            return IconButton(
-              icon: const Icon(Icons.replay),
-              iconSize: 64,
-              onPressed: () => player.seek(Duration.zero),
-            );
-          }
-        },
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(color: colors.errorContainer, borderRadius: BorderRadius.circular(999)),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          spacing: 6,
+          children: [
+            Icon(Icons.circle, size: 8, color: colors.error),
+            Text(
+              'LIVE',
+              style: Theme.of(context).textTheme.labelMedium
+                  ?.copyWith(color: colors.onErrorContainer, fontWeight: FontWeight.w700, letterSpacing: 1.2),
+            ),
+          ],
+        ),
       ),
-    ],
-  );
+    );
+  }
 }

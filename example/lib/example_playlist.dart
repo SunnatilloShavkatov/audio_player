@@ -2,9 +2,8 @@ import 'dart:async';
 
 import 'package:audio_player/audio_player.dart';
 import 'package:audio_player_example/common.dart';
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:rxdart/rxdart.dart';
+import 'package:audio_player_example/ui/playlist_view.dart';
+import 'package:material_ui/material_ui.dart';
 
 void main() {
   runApp(const MyApp());
@@ -63,7 +62,6 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     super.initState();
     ambiguate(WidgetsBinding.instance)!.addObserver(this);
     _player = AudioPlayer(maxSkipsOnError: 3);
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(statusBarColor: Colors.black));
     unawaited(_init());
   }
 
@@ -111,6 +109,21 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     );
   }
 
+  void _addTrack() {
+    unawaited(
+      _player.addAudioSource(
+        AudioSource.uri(
+          Uri.parse('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'),
+          tag: AudioMetadata(
+            album: 'SoundHelix',
+            title: 'SoundHelix Song ${++_addedCount}',
+            artwork: 'https://media.wnyc.org/i/1400/1400/l/80/1/ScienceFriday_WNYCStudios_1400.jpg',
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     ambiguate(WidgetsBinding.instance)!.removeObserver(this);
@@ -128,255 +141,140 @@ class MyAppState extends State<MyApp> with WidgetsBindingObserver {
     }
   }
 
-  Stream<PositionData> get _positionDataStream => Rx.combineLatest3<Duration, Duration, Duration?, PositionData>(
-    _player.positionStream,
-    _player.bufferedPositionStream,
-    _player.durationStream,
-    (position, bufferedPosition, duration) => PositionData(position, bufferedPosition, duration ?? Duration.zero),
-  );
-
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    debugShowCheckedModeBanner: false,
+  Widget build(BuildContext context) => DemoApp(
+    title: 'Audio Player',
     scaffoldMessengerKey: _scaffoldMessengerKey,
     home: Scaffold(
+      appBar: AppBar(title: const Text('Audio Player')),
       body: SafeArea(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Expanded(
-              child: StreamBuilder<SequenceState?>(
-                stream: _player.sequenceStateStream,
-                builder: (context, snapshot) {
-                  final state = snapshot.data;
-                  if (state?.sequence.isEmpty ?? true) {
-                    return const SizedBox();
-                  }
-                  final metadata = state!.currentSource!.tag as AudioMetadata;
-                  return Column(
-                    children: [
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Center(child: Image.network(metadata.artwork)),
-                        ),
-                      ),
-                      Text(metadata.album, style: Theme.of(context).textTheme.titleLarge),
-                      Text(metadata.title),
-                    ],
-                  );
-                },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final playlistHeader = _PlaylistHeader(player: _player, onAdd: _addTrack);
+            PlaylistItemInfo describe(IndexedAudioSource source) {
+              final metadata = source.tag as AudioMetadata;
+              return (title: metadata.title, subtitle: metadata.album, artworkUrl: metadata.artwork);
+            }
+
+            // Wide screens: player on the left, playlist on the right.
+            if (constraints.maxWidth >= 840) {
+              return Row(
+                children: [
+                  Expanded(
+                    child: Center(
+                      child: SingleChildScrollView(padding: const EdgeInsets.all(24), child: _PlayerPane(_player)),
+                    ),
+                  ),
+                  const VerticalDivider(width: 1),
+                  Expanded(
+                    child: PlaylistView(
+                      _player,
+                      describe: describe,
+                      header: playlistHeader,
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+                    ),
+                  ),
+                ],
+              );
+            }
+            // Narrow screens: the player scrolls away above the playlist.
+            return PlaylistView(
+              _player,
+              describe: describe,
+              header: Column(
+                children: [
+                  Padding(padding: const EdgeInsets.fromLTRB(12, 8, 12, 16), child: _PlayerPane(_player)),
+                  playlistHeader,
+                ],
               ),
-            ),
-            ControlButtons(_player),
-            StreamBuilder<PositionData>(
-              stream: _positionDataStream,
-              builder: (context, snapshot) {
-                final positionData = snapshot.data;
-                return SeekBar(
-                  duration: positionData?.duration ?? Duration.zero,
-                  position: positionData?.position ?? Duration.zero,
-                  bufferedPosition: positionData?.bufferedPosition ?? Duration.zero,
-                  onChangeEnd: (newPosition) {
-                    unawaited(_player.seek(newPosition));
-                  },
-                );
-              },
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                StreamBuilder<LoopMode>(
-                  stream: _player.loopModeStream,
-                  builder: (context, snapshot) {
-                    final loopMode = snapshot.data ?? LoopMode.off;
-                    const icons = [
-                      Icon(Icons.repeat, color: Colors.grey),
-                      Icon(Icons.repeat, color: Colors.orange),
-                      Icon(Icons.repeat_one, color: Colors.orange),
-                    ];
-                    const cycleModes = [LoopMode.off, LoopMode.all, LoopMode.one];
-                    final index = cycleModes.indexOf(loopMode);
-                    return IconButton(
-                      icon: icons[index],
-                      onPressed: () {
-                        unawaited(
-                          _player.setLoopMode(cycleModes[(cycleModes.indexOf(loopMode) + 1) % cycleModes.length]),
-                        );
-                      },
-                    );
-                  },
-                ),
-                Expanded(
-                  child: Text('Playlist', style: Theme.of(context).textTheme.titleLarge, textAlign: TextAlign.center),
-                ),
-                StreamBuilder<bool>(
-                  stream: _player.shuffleModeEnabledStream,
-                  builder: (context, snapshot) {
-                    final shuffleModeEnabled = snapshot.data ?? false;
-                    return IconButton(
-                      icon: shuffleModeEnabled
-                          ? const Icon(Icons.shuffle, color: Colors.orange)
-                          : const Icon(Icons.shuffle, color: Colors.grey),
-                      onPressed: () async {
-                        final enable = !shuffleModeEnabled;
-                        if (enable) {
-                          await _player.shuffle();
-                        }
-                        await _player.setShuffleModeEnabled(enabled: enable);
-                      },
-                    );
-                  },
-                ),
-              ],
-            ),
-            SizedBox(
-              height: 240,
-              child: StreamBuilder<SequenceState?>(
-                stream: _player.sequenceStateStream,
-                builder: (context, snapshot) {
-                  final state = snapshot.data;
-                  final sequence = state?.sequence ?? [];
-                  return ReorderableListView(
-                    onReorderItem: (oldIndex, newIndex) => unawaited(_player.moveAudioSource(oldIndex, newIndex)),
-                    children: [
-                      for (var i = 0; i < sequence.length; i++)
-                        Dismissible(
-                          key: ValueKey(sequence[i]),
-                          background: Container(
-                            color: Colors.redAccent,
-                            alignment: Alignment.centerRight,
-                            child: const Padding(
-                              padding: EdgeInsets.only(right: 8),
-                              child: Icon(Icons.delete, color: Colors.white),
-                            ),
-                          ),
-                          onDismissed: (dismissDirection) => _player.removeAudioSourceAt(i),
-                          child: Material(
-                            color: i == state!.currentIndex ? Colors.grey.shade300 : null,
-                            child: ListTile(
-                              title: Text((sequence[i].tag as AudioMetadata).title),
-                              onTap: () => _player.seek(Duration.zero, index: i).catchError((e, st) {}),
-                            ),
-                          ),
-                        ),
-                    ],
-                  );
-                },
-              ),
-            ),
-          ],
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 24),
+            );
+          },
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.add),
-        onPressed: () {
-          unawaited(
-            _player.addAudioSource(
-              AudioSource.uri(
-                Uri.parse('https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3'),
-                tag: AudioMetadata(
-                  album: 'SoundHelix',
-                  title: 'SoundHelix Song ${++_addedCount}',
-                  artwork: 'https://media.wnyc.org/i/1400/1400/l/80/1/ScienceFriday_WNYCStudios_1400.jpg',
-                ),
-              ),
-            ),
-          );
-        },
       ),
     ),
   );
 }
 
-class ControlButtons extends StatelessWidget {
-  const new(this.player, {super.key});
+/// Artwork, title, seek bar, transport controls and playback settings of the current item.
+class _PlayerPane extends StatelessWidget {
+  const new(this.player);
 
   final AudioPlayer player;
 
   @override
-  Widget build(BuildContext context) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      IconButton(
-        icon: const Icon(Icons.volume_up),
-        onPressed: () {
-          showSliderDialog(
-            context: context,
-            title: 'Adjust volume',
-            divisions: 10,
-            min: 0,
-            max: 1,
-            stream: player.volumeStream,
-            onChanged: player.setVolume,
-          );
-        },
-      ),
-      StreamBuilder<SequenceState?>(
-        stream: player.sequenceStateStream,
-        builder: (context, snapshot) => IconButton(
-          icon: const Icon(Icons.skip_previous),
-          onPressed: player.hasPrevious ? player.seekToPrevious : null,
-        ),
-      ),
-      StreamBuilder<(bool, ProcessingState, int)>(
-        stream: Rx.combineLatest2(
-          player.playerEventStream,
-          player.sequenceStream,
-          (event, sequence) => (event.playing, event.playbackEvent.processingState, sequence.length),
-        ),
-        builder: (context, snapshot) {
-          final (playing, processingState, sequenceLength) = snapshot.data ?? (false, null, 0);
-          if (processingState == ProcessingState.loading || processingState == ProcessingState.buffering) {
-            return Container(
-              margin: const EdgeInsets.all(8),
-              width: 64,
-              height: 64,
-              child: const CircularProgressIndicator(),
-            );
-          } else if (!playing) {
-            return IconButton(
-              icon: const Icon(Icons.play_arrow),
-              iconSize: 64,
-              onPressed: sequenceLength > 0 ? player.play : null,
-            );
-          } else if (processingState != ProcessingState.completed) {
-            return IconButton(icon: const Icon(Icons.pause), iconSize: 64, onPressed: player.pause);
-          } else {
-            return IconButton(
-              icon: const Icon(Icons.replay),
-              iconSize: 64,
-              onPressed: sequenceLength > 0
-                  ? () => player.seek(Duration.zero, index: player.effectiveIndices.first)
-                  : null,
-            );
-          }
-        },
-      ),
-      StreamBuilder<SequenceState?>(
-        stream: player.sequenceStateStream,
-        builder: (context, snapshot) =>
-            IconButton(icon: const Icon(Icons.skip_next), onPressed: player.hasNext ? player.seekToNext : null),
-      ),
-      StreamBuilder<double>(
-        stream: player.speedStream,
-        builder: (context, snapshot) => IconButton(
-          icon: Text('${snapshot.data?.toStringAsFixed(1)}x', style: const TextStyle(fontWeight: FontWeight.bold)),
-          onPressed: () {
-            showSliderDialog(
-              context: context,
-              title: 'Adjust speed',
-              divisions: 10,
-              min: 0.5,
-              max: 1.5,
-              stream: player.speedStream,
-              onChanged: player.setSpeed,
+  Widget build(BuildContext context) => ConstrainedBox(
+    constraints: const BoxConstraints(maxWidth: 480),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        StreamBuilder<SequenceState?>(
+          stream: player.sequenceStateStream,
+          builder: (context, snapshot) {
+            final metadata = snapshot.data?.currentSource?.tag as AudioMetadata?;
+            return NowPlaying(
+              title: metadata?.title ?? 'Nothing playing',
+              subtitle: metadata?.album ?? 'Add a track to the playlist',
+              artworkUrl: metadata?.artwork,
+              maxArtworkSize: 280,
             );
           },
         ),
-      ),
-    ],
+        const SizedBox(height: 16),
+        PlayerSeekBar(player),
+        const SizedBox(height: 8),
+        TransportControls(
+          player,
+          leading: [ShuffleButton(player), SkipPreviousButton(player)],
+          trailing: [SkipNextButton(player), LoopButton(player)],
+          onReplay: () {
+            unawaited(player.seek(Duration.zero, index: player.effectiveIndices.first));
+          },
+        ),
+        const SizedBox(height: 16),
+        PlaybackSettingsBar(player),
+      ],
+    ),
   );
+}
+
+/// "Playlist" heading with the track count and a button that appends a track.
+class _PlaylistHeader extends StatelessWidget {
+  const new({required this.player, required this.onAdd});
+
+  final AudioPlayer player;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 8, 0, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Playlist', style: theme.textTheme.titleLarge),
+                StreamBuilder<List<IndexedAudioSource>>(
+                  stream: player.sequenceStream,
+                  builder: (context, snapshot) {
+                    final count = snapshot.data?.length ?? 0;
+                    return Text(
+                      '$count ${count == 1 ? 'track' : 'tracks'} · drag to reorder, swipe to remove',
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    );
+                  },
+                ),
+              ],
+            ),
+          ),
+          FilledButton.tonalIcon(onPressed: onAdd, icon: const Icon(Icons.add_rounded), label: const Text('Add')),
+        ],
+      ),
+    );
+  }
 }
 
 class AudioMetadata {
