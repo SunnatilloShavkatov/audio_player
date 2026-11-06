@@ -9,7 +9,10 @@ published as `uz.plugin.audio_player`.
   `lib/src/platform_interface/` — platform interface + `MethodChannel` impl; `lib/src/internal/` — idle player,
   helpers (not public API). `lib/audio_player.dart` is the public barrel. There is no local proxy: request headers
   and the user agent go to the native players in the source messages.
-- Android (Media3/ExoPlayer): `android/src/main/kotlin/uz/plugin/audio_player/`.
+- Android (Media3/ExoPlayer): `android/src/main/kotlin/uz/plugin/audio_player/`. `AudioPlayer.kt` holds the state;
+  method calls, commands, ExoPlayer callbacks, playback events, sources and effects live in their own files.
+- Keep every Swift and Kotlin file under 300 lines: split by concern (Kotlin: helper classes and `AudioPlayer.*`
+  extension functions; Swift: `AudioPlayer+<Concern>.swift` extensions) instead of growing one file.
 - iOS + macOS (AVPlayer): one shared Swift set in `darwin/audio_player/Sources/audio_player/`
   (`#if os(iOS)` / `#elseif os(macOS)`). A Swift change hits both platforms.
 - Tests: `test/` (mocktail); native players at runtime: `example/integration_test/`. Demo app: `example/`.
@@ -50,6 +53,13 @@ cd example && flutter test integration_test -d <device>      # runs the native p
   the user should build and test.
 - Unit tests run on the development machine: platform-specific code checks `_isAndroid()`, which tests override with
   `AudioPlayerTestHooks.testTargetPlatform`. Don't add test-only branches to `lib/`.
+
+## MCP servers and tools
+
+- Use only: `dart` (analyze, pub, pub.dev search) and GitHub (`gh` CLI or the GitHub MCP; the repo is
+  `SunnatilloShavkatov/audio_player`).
+- Don't use in this repo: `glab` (GitLab), Outlook/Teams/SharePoint, Atlassian (Jira/Confluence), Figma, Firebase,
+  `youtrack`. They are configured for other projects; don't load their tools or suggest them here.
 
 ## Native lifecycle
 

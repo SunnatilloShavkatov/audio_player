@@ -1454,7 +1454,20 @@ void runTests() {
   });
 
   group('setting lifecycle', () {
-    for (final setting in ['volume', 'speed', 'pitch', 'skipSilence']) {
+    for (final setting in [
+      'volume',
+      'speed',
+      'pitch',
+      'skipSilence',
+      'loopMode',
+      'shuffleMode',
+      'shuffle',
+      'automaticallyWaitsToMinimizeStalling',
+      'canUseNetworkResourcesForLiveStreamingWhilePaused',
+      'preferredPeakBitRate',
+      'allowsExternalPlayback',
+      'androidAudioAttributes',
+    ]) {
       for (final dispose in [false, true]) {
         test('$setting does not use a retired platform, dispose=$dispose', () async {
           mock.onInit = (platform) => platform.blockLoad();
@@ -1470,7 +1483,16 @@ void runTests() {
             'volume' => player.setVolume(0.5),
             'speed' => player.setSpeed(1.5),
             'pitch' => player.setPitch(1.5),
-            _ => player.setSkipSilenceEnabled(enabled: true),
+            'skipSilence' => player.setSkipSilenceEnabled(enabled: true),
+            'loopMode' => player.setLoopMode(LoopMode.all),
+            'shuffleMode' => player.setShuffleModeEnabled(enabled: true),
+            'shuffle' => player.shuffle(),
+            'automaticallyWaitsToMinimizeStalling' => player.setAutomaticallyWaitsToMinimizeStalling(enabled: false),
+            'canUseNetworkResourcesForLiveStreamingWhilePaused' =>
+              player.setCanUseNetworkResourcesForLiveStreamingWhilePaused(enabled: true),
+            'preferredPeakBitRate' => player.setPreferredPeakBitRate(1000),
+            'allowsExternalPlayback' => player.setAllowsExternalPlayback(enabled: true),
+            _ => player.setAndroidAudioAttributes(const AndroidAudioAttributes(usage: AndroidAudioUsage.alarm)),
           };
           final requestExpectation = expectLater(request, completes);
           await Future<void>.delayed(Duration.zero);
@@ -1485,6 +1507,35 @@ void runTests() {
         });
       }
     }
+  });
+
+  test('iOS/macOS-only settings reach the native player created after stop', () async {
+    final player = AudioPlayer();
+    addTearDown(player.dispose);
+    await player.setUrl('https://foo.foo/foo.mp3');
+    await player.setCanUseNetworkResourcesForLiveStreamingWhilePaused(enabled: true);
+    await player.setPreferredPeakBitRate(1000);
+    await player.setAllowsExternalPlayback(enabled: true);
+    final firstNative = mock.mostRecentPlayer!;
+    await player.stop();
+    await player.load();
+    final secondNative = mock.mostRecentPlayer!;
+    expect(secondNative, isNot(same(firstNative)));
+    expect(
+      secondNative.darwinSettingCalls,
+      equals([
+        'canUseNetworkResourcesForLiveStreamingWhilePaused=true',
+        'preferredPeakBitRate=1000.0',
+        'allowsExternalPlayback=true',
+      ]),
+    );
+  });
+
+  test('iOS/macOS-only settings at their defaults are not sent on activation', () async {
+    final player = AudioPlayer();
+    addTearDown(player.dispose);
+    await player.setUrl('https://foo.foo/foo.mp3');
+    expect(mock.mostRecentPlayer!.darwinSettingCalls, isEmpty);
   });
 
   group('native error details', () {
@@ -1795,6 +1846,9 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   /// The names of the audio effect and Android-only methods called so far.
   final audioEffectCalls = <String>[];
+
+  /// The iOS/macOS-only settings received so far, as `name=value`.
+  final darwinSettingCalls = <String>[];
   final eventController = StreamController<PlaybackEventMessage>();
   final dataMessageController = StreamController<PlayerDataMessage>();
   final AudioLoadConfigurationMessage? audioLoadConfiguration;
@@ -1967,6 +2021,7 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
 
   @override
   Future<SetAndroidAudioAttributesResponse> setAndroidAudioAttributes(SetAndroidAudioAttributesRequest request) async {
+    _throwIfDisposed('setAndroidAudioAttributes');
     audioEffectCalls.add('setAndroidAudioAttributes');
     androidAudioAttributesRequests.add(request);
     return SetAndroidAudioAttributesResponse();
@@ -1975,19 +2030,29 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
   @override
   Future<SetAutomaticallyWaitsToMinimizeStallingResponse> setAutomaticallyWaitsToMinimizeStalling(
     SetAutomaticallyWaitsToMinimizeStallingRequest request,
-  ) async => SetAutomaticallyWaitsToMinimizeStallingResponse();
+  ) async {
+    _throwIfDisposed('setAutomaticallyWaitsToMinimizeStalling');
+    return SetAutomaticallyWaitsToMinimizeStallingResponse();
+  }
 
   @override
   Future<SetLoopModeResponse> setLoopMode(SetLoopModeRequest request) async {
+    _throwIfDisposed('setLoopMode');
     _loopMode = request.loopMode;
     return SetLoopModeResponse();
   }
 
   @override
-  Future<SetShuffleModeResponse> setShuffleMode(SetShuffleModeRequest request) async => SetShuffleModeResponse();
+  Future<SetShuffleModeResponse> setShuffleMode(SetShuffleModeRequest request) async {
+    _throwIfDisposed('setShuffleMode');
+    return SetShuffleModeResponse();
+  }
 
   @override
-  Future<SetShuffleOrderResponse> setShuffleOrder(SetShuffleOrderRequest request) async => SetShuffleOrderResponse();
+  Future<SetShuffleOrderResponse> setShuffleOrder(SetShuffleOrderRequest request) async {
+    _throwIfDisposed('setShuffleOrder');
+    return SetShuffleOrderResponse();
+  }
 
   @override
   Future<SetSpeedResponse> setSpeed(SetSpeedRequest request) async {
@@ -2106,15 +2171,25 @@ class MockAudioPlayer extends AudioPlayerInstancePlatform {
   Future<SetCanUseNetworkResourcesForLiveStreamingWhilePausedResponse>
   setCanUseNetworkResourcesForLiveStreamingWhilePaused(
     SetCanUseNetworkResourcesForLiveStreamingWhilePausedRequest request,
-  ) async => SetCanUseNetworkResourcesForLiveStreamingWhilePausedResponse();
+  ) async {
+    _throwIfDisposed('setCanUseNetworkResourcesForLiveStreamingWhilePaused');
+    darwinSettingCalls.add('canUseNetworkResourcesForLiveStreamingWhilePaused=${request.enabled}');
+    return SetCanUseNetworkResourcesForLiveStreamingWhilePausedResponse();
+  }
 
   @override
-  Future<SetPreferredPeakBitRateResponse> setPreferredPeakBitRate(SetPreferredPeakBitRateRequest request) async =>
-      SetPreferredPeakBitRateResponse();
+  Future<SetPreferredPeakBitRateResponse> setPreferredPeakBitRate(SetPreferredPeakBitRateRequest request) async {
+    _throwIfDisposed('setPreferredPeakBitRate');
+    darwinSettingCalls.add('preferredPeakBitRate=${request.bitRate}');
+    return SetPreferredPeakBitRateResponse();
+  }
 
   @override
-  Future<SetAllowsExternalPlaybackResponse> setAllowsExternalPlayback(SetAllowsExternalPlaybackRequest request) async =>
-      SetAllowsExternalPlaybackResponse();
+  Future<SetAllowsExternalPlaybackResponse> setAllowsExternalPlayback(SetAllowsExternalPlaybackRequest request) async {
+    _throwIfDisposed('setAllowsExternalPlayback');
+    darwinSettingCalls.add('allowsExternalPlayback=${request.allowsExternalPlayback}');
+    return SetAllowsExternalPlaybackResponse();
+  }
 
   @override
   Future<AudioEffectSetEnabledResponse> audioEffectSetEnabled(AudioEffectSetEnabledRequest request) async {

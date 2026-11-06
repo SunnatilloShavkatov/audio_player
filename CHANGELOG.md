@@ -1,3 +1,16 @@
+## 2.3.0
+
+* Fix (Android): `setAndroidAudioAttributes` with a usage other than `media`, `game` or `unknown` (for example
+  `assistanceNavigationGuidance`) no longer breaks the native player, which then never advanced. Media3 handles the audio
+  focus only for those usages, so players with another usage now play without requesting the focus.
+* Fix: a pending `setLoopMode`, `setShuffleModeEnabled`, `shuffle`, `setAndroidAudioAttributes`,
+  `setAutomaticallyWaitsToMinimizeStalling`, `setCanUseNetworkResourcesForLiveStreamingWhilePaused`,
+  `setPreferredPeakBitRate` or `setAllowsExternalPlayback` no longer calls a retired native player
+  (`MissingPluginException`) when `stop()` or `dispose()` interrupts loading.
+* Fix (iOS/macOS): `setCanUseNetworkResourcesForLiveStreamingWhilePaused`, `setPreferredPeakBitRate` and
+  `setAllowsExternalPlayback` now survive `stop()`. The native player created by the next `play()` or `load()` receives
+  them; previously it fell back to the defaults.
+
 ## 2.2.2
 
 * Android playback errors now include the Media3 error code/name and up to eight native causes in

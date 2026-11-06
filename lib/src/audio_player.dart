@@ -1293,7 +1293,7 @@ class AudioPlayer {
       return;
     }
     _sequenceStateSubject.add(sequenceState.copyWith(loopMode: mode));
-    await (await _platform).setLoopMode(SetLoopModeRequest(loopMode: LoopModeMessage.values[mode.index]));
+    await (await _activePlatform())?.setLoopMode(SetLoopModeRequest(loopMode: LoopModeMessage.values[mode.index]));
   }
 
   /// Sets whether shuffle mode is enabled.
@@ -1302,7 +1302,7 @@ class AudioPlayer {
       return;
     }
     _sequenceStateSubject.add(sequenceState.copyWith(shuffleModeEnabled: enabled));
-    await (await _platform).setShuffleMode(
+    await (await _activePlatform())?.setShuffleMode(
       SetShuffleModeRequest(shuffleMode: enabled ? ShuffleModeMessage.all : ShuffleModeMessage.none),
     );
   }
@@ -1319,7 +1319,9 @@ class AudioPlayer {
     }
     _playlist._shuffle(initialIndex: currentIndex);
     await _broadcastSequence(sequenceChanged: false);
-    await (await _platform).setShuffleOrder(SetShuffleOrderRequest(audioSourceMessage: _playlist._toMessage()));
+    await (await _activePlatform())?.setShuffleOrder(
+      SetShuffleOrderRequest(audioSourceMessage: _playlist._toMessage()),
+    );
   }
 
   /// Sets automaticallyWaitsToMinimizeStalling for AVPlayer in iOS 10.0 or later, defaults to true.
@@ -1329,7 +1331,7 @@ class AudioPlayer {
       return;
     }
     _automaticallyWaitsToMinimizeStalling = enabled;
-    await (await _platform).setAutomaticallyWaitsToMinimizeStalling(
+    await (await _activePlatform())?.setAutomaticallyWaitsToMinimizeStalling(
       SetAutomaticallyWaitsToMinimizeStallingRequest(enabled: enabled),
     );
   }
@@ -1341,7 +1343,7 @@ class AudioPlayer {
       return;
     }
     _canUseNetworkResourcesForLiveStreamingWhilePaused = enabled;
-    await (await _platform).setCanUseNetworkResourcesForLiveStreamingWhilePaused(
+    await (await _activePlatform())?.setCanUseNetworkResourcesForLiveStreamingWhilePaused(
       SetCanUseNetworkResourcesForLiveStreamingWhilePausedRequest(enabled: enabled),
     );
   }
@@ -1353,7 +1355,9 @@ class AudioPlayer {
       return;
     }
     _preferredPeakBitRate = preferredPeakBitRate;
-    await (await _platform).setPreferredPeakBitRate(SetPreferredPeakBitRateRequest(bitRate: preferredPeakBitRate));
+    await (await _activePlatform())?.setPreferredPeakBitRate(
+      SetPreferredPeakBitRateRequest(bitRate: preferredPeakBitRate),
+    );
   }
 
   /// Sets allowsExternalPlayback on iOS/macOS, defaults to false.
@@ -1362,7 +1366,7 @@ class AudioPlayer {
       return;
     }
     _allowsExternalPlayback = enabled;
-    await (await _platform).setAllowsExternalPlayback(
+    await (await _activePlatform())?.setAllowsExternalPlayback(
       SetAllowsExternalPlaybackRequest(allowsExternalPlayback: enabled),
     );
   }
@@ -1421,6 +1425,12 @@ class AudioPlayer {
   /// place from the start. Has no effect on other platforms. This will cause a
   /// new Android AudioSession ID to be generated.
   ///
+  /// Media3 handles the audio focus only for the `media`, `game` and `unknown`
+  /// usages. With any other usage (for example
+  /// `AndroidAudioUsage.assistanceNavigationGuidance`) the player plays
+  /// without requesting the audio focus, as if `handleInterruptions` were
+  /// `false`, but still pauses when headphones are unplugged.
+  ///
   /// Without it, the player plays as `AndroidAudioUsage.media`.
   Future<void> setAndroidAudioAttributes(AndroidAudioAttributes audioAttributes) async {
     if (_disposed) {
@@ -1433,7 +1443,10 @@ class AudioPlayer {
       return;
     }
     _androidAudioAttributes = audioAttributes;
-    await _internalSetAndroidAudioAttributes(await _platform, audioAttributes);
+    final platform = await _activePlatform();
+    if (platform != null) {
+      await _internalSetAndroidAudioAttributes(platform, audioAttributes);
+    }
   }
 
   Future<void> _internalSetAndroidAudioAttributes(
@@ -1730,6 +1743,28 @@ class AudioPlayer {
           await platform.setAutomaticallyWaitsToMinimizeStalling(
             SetAutomaticallyWaitsToMinimizeStallingRequest(enabled: automaticallyWaitsToMinimizeStalling),
           );
+          if (checkInterruption()) {
+            return inactiveResult(platform);
+          }
+        }
+        // Sent before the load: iOS/macOS apply them to the player items and
+        // the AVPlayer that the load creates.
+        if (canUseNetworkResourcesForLiveStreamingWhilePaused) {
+          await platform.setCanUseNetworkResourcesForLiveStreamingWhilePaused(
+            SetCanUseNetworkResourcesForLiveStreamingWhilePausedRequest(enabled: true),
+          );
+          if (checkInterruption()) {
+            return inactiveResult(platform);
+          }
+        }
+        if (preferredPeakBitRate != 0) {
+          await platform.setPreferredPeakBitRate(SetPreferredPeakBitRateRequest(bitRate: preferredPeakBitRate));
+          if (checkInterruption()) {
+            return inactiveResult(platform);
+          }
+        }
+        if (allowsExternalPlayback) {
+          await platform.setAllowsExternalPlayback(SetAllowsExternalPlaybackRequest(allowsExternalPlayback: true));
           if (checkInterruption()) {
             return inactiveResult(platform);
           }
