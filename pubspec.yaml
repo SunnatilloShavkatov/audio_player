@@ -1,6 +1,6 @@
 name: audio_player
 description: "A feature-rich audio player for Flutter. Loop, clip and sequence any sound from any source (asset/file/URL) in gapless playlists."
-version: 1.0.0
+version: 1.0.1
 repository: https://github.com/SunnatilloShavkatov/audio_player
 issue_tracker: https://github.com/SunnatilloShavkatov/audio_player/issues
 topics:
@@ -11,22 +11,22 @@ topics:
   - streaming
 
 environment:
-  sdk: ">=3.13.0 <4.0.0"
-  flutter: ">=3.47.0"
+  sdk: ">=3.14.0 <4.0.0"
+  flutter: ">=3.50.0"
 
 dependencies:
   flutter:
     sdk: flutter
   rxdart: '>=0.28.0 <0.29.0'
   path_provider: ^2.1.6
-  synchronized: ^3.6.1
+  synchronized: ^3.6.1+1
   plugin_platform_interface: ^2.1.8
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   mocktail: ^1.0.5
-  analysis_lints: ^1.1.0
+  analysis_lints: ^1.1.1
 
 flutter:
   plugin:
