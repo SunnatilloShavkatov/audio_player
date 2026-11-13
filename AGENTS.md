@@ -51,7 +51,7 @@ cd example && patrol test -d <device id> -t patrol_test/<file>.dart   # one file
   `CHANGELOG.md` entry; update `README.md` if usage changes.
 - Don't edit `build/`, `.dart_tool/`, `example/build/`, `*.g.dart`. Match surrounding style; no new dependencies
   without reason.
-- Never `git commit` or push; leave changes in the working tree.
+- Never `git commit`; leave changes in the working tree.
 - Never create branches or worktrees; work in the current checkout and leave changes staged for review.
 - Android: agents may compile (`gradlew`, `flutter build apk`) when needed, e.g. for jnigen's compiled-class input.
   Never run the app or its integration tests on an emulator.
