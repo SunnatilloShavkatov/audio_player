@@ -1,11 +1,5 @@
 import AVFoundation
 
-#if os(iOS)
-import Flutter
-#elseif os(macOS)
-import FlutterMacOS
-#endif
-
 private let treadmillSize = 2
 
 // The AVQueuePlayer queue: playlist edits, the play order, looping and the action at the end of an item.

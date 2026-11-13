@@ -1,11 +1,5 @@
 import AVFoundation
 
-#if os(iOS)
-import Flutter
-#elseif os(macOS)
-import FlutterMacOS
-#endif
-
 // Processing state, positions and errors, and the playback events that report them to Dart.
 extension AudioPlayer {
     // MARK: - Buffering state
@@ -27,7 +21,7 @@ extension AudioPlayer {
     // MARK: - Playback events
 
     func broadcastPlaybackEvent() {
-        eventChannel.sendEvent([
+        playbackEvents.sendEvent([
             "processingState": processingState.rawValue,
             "updatePosition": 1000 * updatePositionMs,
             "updateTime": updateTime,
@@ -45,7 +39,7 @@ extension AudioPlayer {
     }
 
     private func getCurrentPosition() -> Int {
-        // XXX: During load, the second case will be selected returning 0.
+        // While loading, the second case is selected and returns 0.
         if seekPos.isValid {
             return Self.milliseconds(of: seekPos)
         } else if let source = currentSource {
@@ -102,12 +96,12 @@ extension AudioPlayer {
     }
 
     private func sendError(_ errorCode: Int, errorMessage: String?, playerItem: IndexedPlayerItem?, switchToIdle: Bool) {
-        let flutterError = FlutterError(
+        let flutterError = NativeError(
             code: "\(errorCode)",
             message: errorMessage,
             details: playerItem.map { ["index": indexForItem($0)] }
         )
-        eventChannel.sendEvent(flutterError)
+        playbackEvents.sendEvent(flutterError)
         self.errorCode = errorCode
         self.errorMessage = errorMessage
         if switchToIdle {

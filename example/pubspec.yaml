@@ -18,10 +18,18 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  integration_test:
-    sdk: flutter
+  patrol: ^4.11.0
   test: any
+  test_api: any
   analysis_lints: ^1.1.1
+
+patrol:
+  app_name: Audio Player
+  test_directory: patrol_test
+  android:
+    package_name: uz.plugin.audio_player_example
+  ios:
+    bundle_id: uz.plugin.audioPlayerExample
 
 flutter:
   config:

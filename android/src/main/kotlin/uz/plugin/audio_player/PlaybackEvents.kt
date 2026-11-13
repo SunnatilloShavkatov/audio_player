@@ -74,7 +74,7 @@ private fun AudioPlayer.createPlaybackEvent(): Map<String, Any?> {
 // Broadcast the pending playback event if it was set.
 internal fun AudioPlayer.broadcastPendingPlaybackEvent() {
     pendingPlaybackEvent?.let {
-        eventChannel.success(it)
+        events.playbackEvent(it)
         pendingPlaybackEvent = null
     }
 }
@@ -135,7 +135,7 @@ internal fun AudioPlayer.sendError(errorCode: Int, errorMsg: String?, details: A
     prepareResult = null
     // A pending seek will never finish, so complete it, or Dart waits for it forever.
     abortSeek()
-    eventChannel.error(errorCode.toString(), errorMsg, details)
+    events.playbackError(errorCode.toString(), errorMsg, details)
     this.errorCode = errorCode
     this.errorMessage = errorMsg
     if (switchToIdle) {

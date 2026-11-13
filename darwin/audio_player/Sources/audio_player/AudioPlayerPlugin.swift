@@ -4,61 +4,18 @@ import Flutter
 import FlutterMacOS
 #endif
 
+/// Only the engine lifecycle: Dart calls `AudioPlayerApi` through the Objective-C runtime, so there is no method
+/// channel on Apple platforms either.
 public class AudioPlayerPlugin: NSObject, FlutterPlugin {
-    private let registrar: FlutterPluginRegistrar
-    private var players: [String: AudioPlayer] = [:]
-
     public static func register(with registrar: FlutterPluginRegistrar) {
-        let channel = FlutterMethodChannel(name: "uz.plugin.audio_player.methods", binaryMessenger: registrar.binaryMessenger)
-        let instance = AudioPlayerPlugin(registrar: registrar)
-        registrar.addMethodCallDelegate(instance, channel: channel)
+        // Publishing keeps this instance alive so `detachFromEngine` runs. Dart looks `AudioPlayerApi` up by name,
+        // so this reference is also what keeps its class out of the linker's dead-code stripping.
+        _ = AudioPlayerApi.self
+        registrar.publish(AudioPlayerPlugin())
     }
 
-    init(registrar: FlutterPluginRegistrar) {
-        self.registrar = registrar
-        super.init()
-    }
-
-    public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        let request = call.arguments as? [String: Any] ?? [:]
-        switch call.method {
-        case "init":
-            guard let playerId = request["id"] as? String else {
-                result(FlutterError(code: "error", message: "Missing player id", details: nil))
-                return
-            }
-            if players[playerId] != nil {
-                result(FlutterError(code: "error", message: "Platform player already exists", details: nil))
-            } else {
-                let loadConfiguration = request["audioLoadConfiguration"] as? [String: Any]
-                players[playerId] = AudioPlayer(
-                    registrar: registrar,
-                    playerId: playerId,
-                    loadConfiguration: loadConfiguration,
-                    handleInterruptions: request["handleInterruptions"] as? Bool ?? true,
-                    handleAudioSessionActivation: request["handleAudioSessionActivation"] as? Bool ?? true
-                )
-                result(nil)
-            }
-        case "disposePlayer":
-            if let playerId = request["id"] as? String {
-                players.removeValue(forKey: playerId)?.dispose(calledFromDeinit: false)
-            }
-            result([String: Any]())
-        case "disposeAllPlayers":
-            for player in players.values {
-                player.dispose(calledFromDeinit: false)
-            }
-            players.removeAll()
-            result([String: Any]())
-        default:
-            result(FlutterMethodNotImplemented)
-        }
-    }
-
-    deinit {
-        for player in players.values {
-            player.dispose(calledFromDeinit: true)
-        }
+    /// Engine teardown (app closed or Flutter engine destroyed): free every native player.
+    public func detachFromEngine(for registrar: FlutterPluginRegistrar) {
+        AudioPlayerApi.detach()
     }
 }

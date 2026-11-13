@@ -3,11 +3,11 @@ plugins {
 }
 
 group = "uz.plugin.audio_player"
-version = "1.0.1"
+version = "1.1.0"
 
 android {
     namespace = "uz.plugin.audio_player"
-    compileSdk = 36
+    compileSdk = 37
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -22,6 +22,7 @@ android {
 
     defaultConfig {
         minSdk = 24
+        consumerProguardFiles("consumer-rules.pro")
     }
 
     lint {
@@ -34,4 +35,6 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:$exoplayerVersion")
     implementation("androidx.media3:media3-exoplayer-dash:$exoplayerVersion")
     implementation("androidx.media3:media3-exoplayer-hls:$exoplayerVersion")
+
+    testImplementation("junit:junit:4.13.2")
 }

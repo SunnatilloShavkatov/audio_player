@@ -1939,8 +1939,8 @@ class AudioPlayer {
       _nativePlatform = null;
       try {
         await _pluginPlatform.disposePlayer(DisposePlayerRequest(id: _id!));
-      } catch (e) {
-        // Fallback if disposePlayer hasn't been implemented.
+      } on UnimplementedError {
+        // Platforms written before disposePlayer only dispose through their instance.
         await platform.dispose(DisposeRequest());
       } finally {
         _id = null;

@@ -1,11 +1,5 @@
 import AVFoundation
 
-#if os(iOS)
-import Flutter
-#elseif os(macOS)
-import FlutterMacOS
-#endif
-
 // Observers of the player items: KVO, the end of an item and the ICY metadata.
 extension AudioPlayer {
     private static let icyMetadataIdentifiers = ["icy/StreamTitle", "icy/StreamUrl"]

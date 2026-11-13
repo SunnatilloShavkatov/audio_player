@@ -5,7 +5,6 @@ import androidx.media3.common.C
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ShuffleOrder
-import io.flutter.plugin.common.MethodChannel.Result
 
 // The playback commands that AudioPlayerMethodHandler runs on the player.
 
@@ -14,7 +13,7 @@ internal fun AudioPlayer.load(
     shuffleOrder: ShuffleOrder,
     initialPosition: Long,
     initialIndex: Int?,
-    result: Result,
+    result: PlayerResult,
 ) {
     currentIndex = initialIndex ?: 0
     when (processingState) {
@@ -50,7 +49,7 @@ internal fun AudioPlayer.load(
     }
 }
 
-internal fun AudioPlayer.play(result: Result) {
+internal fun AudioPlayer.play(result: PlayerResult) {
     if (player.playWhenReady) {
         result.success(emptyMap<String, Any?>())
         return
@@ -91,7 +90,7 @@ internal fun AudioPlayer.setPitch(pitch: Float) {
     enqueuePlaybackEvent()
 }
 
-internal fun AudioPlayer.seek(position: Long, index: Int?, result: Result) {
+internal fun AudioPlayer.seek(position: Long, index: Int?, result: PlayerResult) {
     if (processingState == ProcessingState.idle || processingState == ProcessingState.loading) {
         result.success(emptyMap<String, Any?>())
         return

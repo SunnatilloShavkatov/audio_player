@@ -68,7 +68,6 @@ final class UriAudioSource: IndexedAudioSource {
         item?.seekableTimeRanges.last?.timeRangeValue
     }
 
-
     override func applyCanUseNetworkResourcesForLiveStreamingWhilePaused() {
         item?.canUseNetworkResourcesForLiveStreamingWhilePaused = loadControl.canUseNetworkResourcesForLiveStreamingWhilePaused
         item2?.canUseNetworkResourcesForLiveStreamingWhilePaused = loadControl.canUseNetworkResourcesForLiveStreamingWhilePaused

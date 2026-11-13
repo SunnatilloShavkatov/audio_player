@@ -1,11 +1,5 @@
 import AVFoundation
 
-#if os(iOS)
-import Flutter
-#elseif os(macOS)
-import FlutterMacOS
-#endif
-
 // Decoding of the audio sources sent by Dart, and loading them into the player.
 extension AudioPlayer {
     // MARK: - Audio source decoding
@@ -81,7 +75,7 @@ extension AudioPlayer {
         return clipper
     }
 
-    func load(_ source: [String: Any], initialPosition: CMTime, initialIndex: Int?, result: @escaping FlutterResult) throws {
+    func load(_ source: [String: Any], initialPosition: CMTime, initialIndex: Int?, result: @escaping NativeResult) throws {
         // Decode before touching any state so that an invalid source leaves the current one intact.
         let newAudioSource = try decodeLoadSource(source)
         if playing {
@@ -92,7 +86,7 @@ extension AudioPlayer {
         }
         if let previousLoadResult = loadResult {
             // The previous load was superseded before its item became ready.
-            previousLoadResult(FlutterError(code: "\(errorAbort)", message: "Connection aborted", details: nil))
+            previousLoadResult(NativeError(code: "\(errorAbort)", message: "Connection aborted", details: nil))
         }
         loadResult = result
         processingState = .loading

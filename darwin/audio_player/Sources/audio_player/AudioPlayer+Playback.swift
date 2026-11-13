@@ -1,14 +1,8 @@
 import AVFoundation
 
-#if os(iOS)
-import Flutter
-#elseif os(macOS)
-import FlutterMacOS
-#endif
-
 // Playback control: play, pause, completion and seeking.
 extension AudioPlayer {
-    func play(result: @escaping FlutterResult) {
+    func play(result: @escaping NativeResult) {
         if playing {
             result([String: Any]())
             return
@@ -17,7 +11,7 @@ extension AudioPlayer {
             // The system refuses to let this app play right now (a phone call is in progress, for example). Dart has
             // already set `playing`, so answer the request and tell it to revert.
             result([String: Any]())
-            dataEventChannel.sendEvent(["playing": false])
+            dataEvents.sendEvent(["playing": false])
             return
         }
         // Playing on purpose supersedes an interruption that was waiting to be resumed.

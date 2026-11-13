@@ -3,28 +3,24 @@ package uz.plugin.audio_player
 import io.flutter.embedding.engine.FlutterEngine.EngineLifecycleListener
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.FlutterPlugin.FlutterPluginBinding
-import io.flutter.plugin.common.MethodChannel
 
 /**
- * AudioPlayerPlugin
+ * Only the engine lifecycle: Dart calls [AudioPlayerApi] through JNI, so there is no channel. Each attached engine
+ * gets its own [AudioPlayerHost]; detaching or restarting the engine releases its players.
  */
 class AudioPlayerPlugin : FlutterPlugin {
-    private var channel: MethodChannel? = null
-    private var methodCallHandler: MainMethodCallHandler? = null
+    private var host: AudioPlayerHost? = null
     private var engineLifecycleListener: EngineLifecycleListener? = null
 
     override fun onAttachedToEngine(binding: FlutterPluginBinding) {
-        val messenger = binding.binaryMessenger
-        val handler = MainMethodCallHandler(binding.applicationContext, messenger)
-        methodCallHandler = handler
+        val attached = AudioPlayerHost(binding.applicationContext)
+        host = attached
+        AudioPlayerHost.current = attached
 
-        channel = MethodChannel(messenger, "uz.plugin.audio_player.methods").also {
-            it.setMethodCallHandler(handler)
-        }
         val listener = object : EngineLifecycleListener {
             override fun onPreEngineRestart() {
-                // The engine is going away: sending messages now is not allowed.
-                handler.dispose(calledFromDeinit = true)
+                // The Dart side is going away: nothing may be sent to it now.
+                attached.restart()
             }
 
             override fun onEngineWillDestroy() {}
@@ -35,18 +31,17 @@ class AudioPlayerPlugin : FlutterPlugin {
     }
 
     override fun onDetachedFromEngine(binding: FlutterPluginBinding) {
-        // Unregister so the engine does not keep this plugin's handler alive.
+        // Unregister so the engine does not keep this plugin's listener alive.
         engineLifecycleListener?.let {
             @Suppress("DEPRECATION")
             binding.flutterEngine.removeEngineLifecycleListener(it)
         }
         engineLifecycleListener = null
 
-        channel?.setMethodCallHandler(null)
-        channel = null
-
-        // The engine is being destroyed: sending messages now is not allowed.
-        methodCallHandler?.dispose(calledFromDeinit = true)
-        methodCallHandler = null
+        val detached = host ?: return
+        host = null
+        if (AudioPlayerHost.current === detached) AudioPlayerHost.current = null
+        // The engine is being destroyed: nothing may be sent now.
+        detached.detach()
     }
 }

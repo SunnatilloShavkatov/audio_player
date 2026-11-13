@@ -1,18 +1,11 @@
 import AVFoundation
 
-#if os(iOS)
-import Flutter
-#elseif os(macOS)
-import FlutterMacOS
-#endif
-
-// Decoding of the calls on the player's method channel, and the setters they run.
+// Decoding of the calls Dart makes on the player, and the setters they run.
 extension AudioPlayer {
-    func handleMethodCall(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
-        let request = call.arguments as? [String: Any] ?? [:]
+    func handleCall(_ method: String, request: [String: Any], result: @escaping NativeResult) {
         let empty = [String: Any]()
         do {
-            switch call.method {
+            switch method {
             case "load":
                 guard let source = request["audioSource"] as? [String: Any] else { throw PlayerError.invalidSource }
                 let initialPosition = Self.time(fromMicroseconds: request["initialPosition"]) ?? .invalid
@@ -89,10 +82,10 @@ extension AudioPlayer {
             case "setAndroidAudioAttributes":
                 result(empty)
             default:
-                result(FlutterMethodNotImplemented)
+                result(NativeError(code: "unimplemented", message: "Unknown method \(method)", details: nil))
             }
         } catch {
-            result(FlutterError(code: "error", message: "Error in \(call.method): \(error.localizedDescription)", details: "\(error)"))
+            result(NativeError(code: "error", message: "Error in \(method): \(error.localizedDescription)", details: "\(error)"))
         }
     }
 

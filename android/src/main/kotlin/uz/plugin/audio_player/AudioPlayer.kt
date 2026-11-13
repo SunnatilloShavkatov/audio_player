@@ -15,9 +15,6 @@ import androidx.media3.exoplayer.LoadControl
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
 import io.flutter.Log
-import io.flutter.plugin.common.BinaryMessenger
-import io.flutter.plugin.common.MethodChannel
-import io.flutter.plugin.common.MethodChannel.Result
 
 internal enum class ProcessingState {
     idle,
@@ -28,16 +25,15 @@ internal enum class ProcessingState {
 }
 
 /**
- * One native player, driven over its own method channel.
+ * One native player, driven by the calls [AudioPlayerHost] routes to it and reporting to Dart through [events].
  *
  * The work is split over several files that share this class's state: [AudioPlayerMethodHandler] decodes the method
  * calls, `AudioPlayerCommands.kt` runs them, [PlayerEventListener] reacts to ExoPlayer and `PlaybackEvents.kt`
  * reports the state to Dart.
  */
-class AudioPlayer(
+internal class AudioPlayer(
     applicationContext: Context,
-    messenger: BinaryMessenger,
-    id: String,
+    internal val events: PlayerEventSink,
     audioLoadConfiguration: Map<*, *>?,
     rawAudioEffects: List<Any?>,
     audioOffloadPreferences: Map<*, *>?,
@@ -46,10 +42,7 @@ class AudioPlayer(
     internal val handleInterruptions: Boolean,
 ) {
     internal val context: Context = applicationContext
-    private val methodChannel: MethodChannel =
-        MethodChannel(messenger, "uz.plugin.audio_player.methods.$id")
-    internal val eventChannel = BetterEventChannel(messenger, "uz.plugin.audio_player.events.$id")
-    internal val dataEventChannel = BetterEventChannel(messenger, "uz.plugin.audio_player.data.$id")
+    private val methodHandler = AudioPlayerMethodHandler(this)
     private val playerListener = PlayerEventListener(this)
 
     internal var processingState = ProcessingState.idle
@@ -57,18 +50,18 @@ class AudioPlayer(
     internal var updateTime = 0L
     internal var bufferedPosition = 0L
     internal var seekPos: Long? = null
-    internal var prepareResult: Result? = null
-    internal var playResult: Result? = null
-    internal var seekResult: Result? = null
+    internal var prepareResult: PlayerResult? = null
+    internal var playResult: PlayerResult? = null
+    internal var seekResult: PlayerResult? = null
     internal val audioSources = AudioSourceDecoder(applicationContext)
     internal val icyMetadata = IcyMetadata()
     internal var pendingAudioAttributes: AudioAttributes? = null
     private val audioOffloadPreferences: AudioOffloadPreferences =
         buildAudioOffloadPreferences(audioOffloadPreferences, offloadSchedulingEnabled ?: false)
     private val loadControl: LoadControl? =
-        releaseChannelsOnError { buildLoadControl(audioLoadConfiguration) }
+        closeEventsOnError { buildLoadControl(audioLoadConfiguration) }
     private val livePlaybackSpeedControl: LivePlaybackSpeedControl? =
-        releaseChannelsOnError { buildLivePlaybackSpeedControl(audioLoadConfiguration) }
+        closeEventsOnError { buildLivePlaybackSpeedControl(audioLoadConfiguration) }
     internal val audioEffects = AudioEffectsController(rawAudioEffects)
     internal var lastPlaylistLength = 0
     internal var pendingPlaybackEvent: Map<String, Any?>? = null
@@ -106,21 +99,20 @@ class AudioPlayer(
         }
     }
 
-    init {
-        // The configuration is parsed above, before the method handler is registered.
-        methodChannel.setMethodCallHandler(AudioPlayerMethodHandler(this))
+    /** Runs the [call] from Dart on this player; the answer goes to [result]. */
+    fun handleCall(call: PlayerCall, result: PlayerResult) {
+        methodHandler.onCall(call, result)
     }
 
     /**
-     * Runs [block] while the configuration is parsed. A bad configuration throws, and the stream handlers of the
-     * channels created above must not stay registered for a player that never existed.
+     * Runs [block] while the configuration is parsed. A bad configuration throws, and the events of a player that
+     * never existed must not be delivered.
      */
-    private inline fun <T> releaseChannelsOnError(block: () -> T): T =
+    private inline fun <T> closeEventsOnError(block: () -> T): T =
         try {
             block()
         } catch (e: Exception) {
-            eventChannel.dispose(calledFromDeinit = false)
-            dataEventChannel.dispose(calledFromDeinit = false)
+            events.close()
             throw e
         }
 
@@ -172,11 +164,11 @@ class AudioPlayer(
     }
 
     /**
-     * Releases the player and unregisters the channels.
+     * Releases the player and stops its events.
      *
      * [calledFromDeinit] is true while the FlutterEngine is being destroyed or restarted. Then nothing may be sent
-     * (replies to pending calls, playback events, end-of-stream) and the channel handlers are left alone, because
-     * the engine drops them itself. Explicit disposal from Dart passes false and may send and unregister.
+     * (replies to pending calls, playback events), because the Dart side is going away. Explicit disposal from Dart
+     * passes false and may send.
      */
     fun dispose(calledFromDeinit: Boolean) {
         if (!calledFromDeinit) {
@@ -214,13 +206,7 @@ class AudioPlayer(
             }
         }
         pendingPlaybackEvent = null
-        if (!calledFromDeinit) {
-            // Unregister the channels. Otherwise the messenger keeps this disposed
-            // player (and its three handlers) alive for the rest of the engine's life.
-            methodChannel.setMethodCallHandler(null)
-        }
-        eventChannel.dispose(calledFromDeinit)
-        dataEventChannel.dispose(calledFromDeinit)
+        events.close()
     }
 
     companion object {

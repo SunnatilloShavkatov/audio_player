@@ -1,3 +1,14 @@
+## 1.1.0
+
+* Replace method and event channels with direct native calls: JNI (`jni`, `jnigen`) on Android and the Objective-C
+  runtime (`objective_c`, `ffigen`) on iOS and macOS. The public Dart API is unchanged.
+* Android: the JNI facade `AudioPlayerApi` is Kotlin (bindings generated from the compiled classes), plugin `compileSdk` 37, R8 keep rules for the facade (`consumer-rules.pro`).
+* Example: the integration tests are now Patrol e2e tests in `example/patrol_test/` (`patrol test -d <device>`).
+* Android: a request with a missing or wrongly typed field now fails with the `invalid_argument` code (it was `error`).
+* Dispose no longer sends an unhandled native `dispose` call. A platform without `disposePlayer` is still disposed through its instance.
+* `AudioPlayerPlatform` now defaults to `AndroidAudioPlayerPlatform` / `DarwinAudioPlayerPlatform`;
+  `MethodChannelAudioPlayerPlatform` is removed.
+
 ## 1.0.1
 
 * Require Dart 3.14 and Flutter 3.50.

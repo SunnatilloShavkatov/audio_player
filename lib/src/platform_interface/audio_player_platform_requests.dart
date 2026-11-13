@@ -1,0 +1,532 @@
+part of 'audio_player_platform_interface.dart';
+
+// Message classes build themselves with static fromMap constructors, which is the wire format.
+// Message classes build themselves with static fromMap constructors, and the empty responses have only static members.
+// ignore_for_file: prefer_constructors_over_static_methods, avoid_classes_with_only_static_members
+
+/// A data update communicated from the platform implementation to the Flutter
+/// plugin. Each field should trigger a state update in the frontend plugin if
+/// and only if it is not null. Normally, the platform implementation will not
+/// need to broadcast new state changes for this state as such state changes
+/// will be initiated from the frontend.
+class PlayerDataMessage {
+  new({this.playing, this.volume, this.speed, this.pitch, this.loopMode, this.shuffleMode});
+  final bool? playing;
+  final double? volume;
+  final double? speed;
+  final double? pitch;
+  final LoopModeMessage? loopMode;
+  final ShuffleModeMessage? shuffleMode;
+
+  static PlayerDataMessage fromMap(Map<dynamic, dynamic> map) => PlayerDataMessage(
+    playing: map['playing'] as bool?,
+    volume: (map['volume'] as num?)?.toDouble(),
+    speed: (map['speed'] as num?)?.toDouble(),
+    pitch: (map['pitch'] as num?)?.toDouble(),
+    loopMode: map['loopMode'] != null ? LoopModeMessage.values[map['loopMode'] as int] : null,
+    shuffleMode: map['shuffleMode'] != null ? ShuffleModeMessage.values[map['shuffleMode'] as int] : null,
+  );
+}
+
+/// A playback event communicated from the platform implementation to the
+/// Flutter plugin.
+class PlaybackEventMessage {
+  new({
+    required this.processingState,
+    required this.updateTime,
+    required this.updatePosition,
+    required this.bufferedPosition,
+    required this.duration,
+    required this.icyMetadata,
+    required this.currentIndex,
+    required this.androidAudioSessionId,
+    this.errorCode,
+    this.errorMessage,
+  });
+  final ProcessingStateMessage processingState;
+  final DateTime updateTime;
+  final Duration updatePosition;
+  final Duration bufferedPosition;
+  final Duration? duration;
+  final IcyMetadataMessage? icyMetadata;
+  final int? currentIndex;
+  final int? androidAudioSessionId;
+  final int? errorCode;
+  final String? errorMessage;
+
+  static PlaybackEventMessage fromMap(Map<dynamic, dynamic> map) => PlaybackEventMessage(
+    processingState: ProcessingStateMessage.values[map['processingState'] as int],
+    updateTime: DateTime.fromMillisecondsSinceEpoch(map['updateTime'] as int),
+    updatePosition: Duration(microseconds: map['updatePosition'] as int),
+    bufferedPosition: Duration(microseconds: map['bufferedPosition'] as int),
+    duration: map['duration'] == null || map['duration'] as int < 0
+        ? null
+        : Duration(microseconds: map['duration'] as int),
+    icyMetadata: map['icyMetadata'] == null
+        ? null
+        : IcyMetadataMessage.fromMap(map['icyMetadata'] as Map<dynamic, dynamic>),
+    currentIndex: map['currentIndex'] as int?,
+    androidAudioSessionId: map['androidAudioSessionId'] as int?,
+    errorCode: map['errorCode'] as int?,
+    errorMessage: map['errorMessage'] as String?,
+  );
+}
+
+/// A processing state communicated from the platform implementation.
+enum ProcessingStateMessage { idle, loading, buffering, ready, completed }
+
+/// Icy metadata communicated from the platform implementation.
+class IcyMetadataMessage {
+  new({required this.info, required this.headers});
+  final IcyInfoMessage? info;
+  final IcyHeadersMessage? headers;
+
+  static IcyMetadataMessage fromMap(Map<dynamic, dynamic> json) => IcyMetadataMessage(
+    info: json['info'] == null ? null : IcyInfoMessage.fromMap(json['info'] as Map<dynamic, dynamic>),
+    headers: json['headers'] == null ? null : IcyHeadersMessage.fromMap(json['headers'] as Map<dynamic, dynamic>),
+  );
+}
+
+/// Icy info communicated from the platform implementation.
+class IcyInfoMessage {
+  new({required this.title, required this.url});
+  final String? title;
+  final String? url;
+
+  static IcyInfoMessage fromMap(Map<dynamic, dynamic> json) =>
+      IcyInfoMessage(title: json['title'] as String?, url: json['url'] as String?);
+}
+
+/// Icy headers communicated from the platform implementation.
+class IcyHeadersMessage {
+  new({
+    required this.bitrate,
+    required this.genre,
+    required this.name,
+    required this.metadataInterval,
+    required this.url,
+    required this.isPublic,
+  });
+  final int? bitrate;
+  final String? genre;
+  final String? name;
+  final int? metadataInterval;
+  final String? url;
+  final bool? isPublic;
+
+  static IcyHeadersMessage fromMap(Map<dynamic, dynamic> json) => IcyHeadersMessage(
+    bitrate: json['bitrate'] as int?,
+    genre: json['genre'] as String?,
+    name: json['name'] as String?,
+    metadataInterval: json['metadataInterval'] as int?,
+    url: json['url'] as String?,
+    isPublic: json['isPublic'] as bool?,
+  );
+}
+
+/// Information communicated to the platform implementation when creating a new
+/// player instance.
+class InitRequest {
+  new({
+    required this.id,
+    this.audioLoadConfiguration,
+    this.androidAudioEffects = const [],
+    this.androidAudioOffloadPreferences,
+    this.androidOffloadSchedulingEnabled,
+    this.useLazyPreparation = true,
+    this.handleInterruptions = true,
+    this.handleAudioSessionActivation = true,
+  });
+  final String id;
+  final AudioLoadConfigurationMessage? audioLoadConfiguration;
+  final List<AudioEffectMessage> androidAudioEffects;
+
+  final AndroidAudioOffloadPreferencesMessage? androidAudioOffloadPreferences;
+  final bool? androidOffloadSchedulingEnabled;
+  final bool useLazyPreparation;
+
+  /// Whether the platform player pauses, ducks and resumes by itself when the
+  /// audio focus (Android) or the audio session (iOS) is interrupted, and
+  /// pauses when headphones are unplugged.
+  final bool handleInterruptions;
+
+  /// Whether the platform player configures and activates the audio session
+  /// before it starts playing (iOS only).
+  final bool handleAudioSessionActivation;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
+    'id': id,
+    'audioLoadConfiguration': audioLoadConfiguration?.toMap(),
+    'androidAudioEffects': androidAudioEffects.map((audioEffect) => audioEffect.toMap()).toList(),
+    'androidAudioOffloadPreferences': androidAudioOffloadPreferences?.toMap(),
+    'androidOffloadSchedulingEnabled': androidOffloadSchedulingEnabled,
+    'useLazyPreparation': useLazyPreparation,
+    'handleInterruptions': handleInterruptions,
+    'handleAudioSessionActivation': handleAudioSessionActivation,
+  };
+}
+
+/// Information communicated to the platform implementation when disposing of a
+/// player instance.
+class DisposePlayerRequest {
+  new({required this.id});
+  final String id;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'id': id};
+}
+
+/// Information returned by the platform implementation after disposing of a
+/// player instance.
+class DisposePlayerResponse {
+  static DisposePlayerResponse fromMap(Map<dynamic, dynamic> map) => DisposePlayerResponse();
+}
+
+/// Information communicated to the platform implementation when disposing of all
+/// player instances.
+class DisposeAllPlayersRequest {
+  new();
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{};
+}
+
+/// Information returned by the platform implementation after disposing of all
+/// player instances.
+class DisposeAllPlayersResponse {
+  static DisposeAllPlayersResponse fromMap(Map<dynamic, dynamic> map) => DisposeAllPlayersResponse();
+}
+
+/// Information communicated to the platform implementation when loading an
+/// audio source.
+class LoadRequest {
+  new({required this.audioSourceMessage, this.initialPosition, this.initialIndex});
+  final AudioSourceMessage audioSourceMessage;
+  final Duration? initialPosition;
+  final int? initialIndex;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
+    'audioSource': audioSourceMessage.toMap(),
+    'initialPosition': initialPosition?.inMicroseconds,
+    'initialIndex': initialIndex,
+  };
+}
+
+/// Information returned by the platform implementation after loading an audio
+/// source.
+class LoadResponse {
+  new({required this.duration});
+  final Duration? duration;
+
+  static LoadResponse fromMap(Map<dynamic, dynamic> map) => LoadResponse(
+    duration: map['duration'] == null || map['duration'] as int < 0
+        ? null
+        : Duration(microseconds: map['duration'] as int),
+  );
+}
+
+/// Information communicated to the platform implementation when playing an
+/// audio source.
+class PlayRequest {
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{};
+}
+
+/// Information returned by the platform implementation after playing an audio
+/// source.
+class PlayResponse {
+  static PlayResponse fromMap(Map<dynamic, dynamic> map) => PlayResponse();
+}
+
+/// Information communicated to the platform implementation when pausing
+/// playback.
+class PauseRequest {
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{};
+}
+
+/// Information returned by the platform implementation after pausing playback.
+class PauseResponse {
+  static PauseResponse fromMap(Map<dynamic, dynamic> map) => PauseResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// volume.
+class SetVolumeRequest {
+  new({required this.volume});
+  final double volume;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'volume': volume};
+}
+
+/// Information returned by the platform implementation after setting the
+/// volume.
+class SetVolumeResponse {
+  static SetVolumeResponse fromMap(Map<dynamic, dynamic> map) => SetVolumeResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// speed.
+class SetSpeedRequest {
+  new({required this.speed});
+  final double speed;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'speed': speed};
+}
+
+/// Information returned by the platform implementation after setting the
+/// speed.
+class SetSpeedResponse {
+  static SetSpeedResponse fromMap(Map<dynamic, dynamic> map) => SetSpeedResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// pitch.
+class SetPitchRequest {
+  new({required this.pitch});
+  final double pitch;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'pitch': pitch};
+}
+
+/// Information returned by the platform implementation after setting the
+/// pitch.
+class SetPitchResponse {
+  static SetPitchResponse fromMap(Map<dynamic, dynamic> map) => SetPitchResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// skipSilence.
+class SetSkipSilenceRequest {
+  new({required this.enabled});
+  final bool enabled;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'enabled': enabled};
+}
+
+/// Information returned by the platform implementation after setting the
+/// speed.
+class SetSkipSilenceResponse {
+  static SetSkipSilenceResponse fromMap(Map<dynamic, dynamic> map) => SetSkipSilenceResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// loop mode.
+class SetLoopModeRequest {
+  new({required this.loopMode});
+  final LoopModeMessage loopMode;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'loopMode': loopMode.index};
+}
+
+/// Information returned by the platform implementation after setting the
+/// loop mode.
+class SetLoopModeResponse {
+  static SetLoopModeResponse fromMap(Map<dynamic, dynamic> map) => SetLoopModeResponse();
+}
+
+/// The loop mode communicated to the platform implementation.
+enum LoopModeMessage { off, one, all }
+
+/// Information communicated to the platform implementation when setting the
+/// shuffle mode.
+class SetShuffleModeRequest {
+  new({required this.shuffleMode});
+  final ShuffleModeMessage shuffleMode;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'shuffleMode': shuffleMode.index};
+}
+
+/// Information returned by the platform implementation after setting the
+/// shuffle mode.
+class SetShuffleModeResponse {
+  static SetShuffleModeResponse fromMap(Map<dynamic, dynamic> map) => SetShuffleModeResponse();
+}
+
+/// The shuffle mode communicated to the platform implementation.
+enum ShuffleModeMessage { none, all }
+
+/// Information communicated to the platform implementation when setting the
+/// shuffle order.
+class SetShuffleOrderRequest {
+  new({required this.audioSourceMessage});
+  final AudioSourceMessage audioSourceMessage;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'audioSource': audioSourceMessage.toMap()};
+}
+
+/// Information returned by the platform implementation after setting the
+/// shuffle order.
+class SetShuffleOrderResponse {
+  static SetShuffleOrderResponse fromMap(Map<dynamic, dynamic> map) => SetShuffleOrderResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// automaticallyWaitsToMinimizeStalling option.
+class SetAutomaticallyWaitsToMinimizeStallingRequest {
+  new({required this.enabled});
+  final bool enabled;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'enabled': enabled};
+}
+
+/// Information returned by the platform implementation after setting the
+/// automaticallyWaitsToMinimizeStalling option.
+class SetAutomaticallyWaitsToMinimizeStallingResponse {
+  static SetAutomaticallyWaitsToMinimizeStallingResponse fromMap(Map<dynamic, dynamic> map) =>
+      SetAutomaticallyWaitsToMinimizeStallingResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// canUseNetworkResourcesForLiveStreamingWhilePaused option.
+class SetCanUseNetworkResourcesForLiveStreamingWhilePausedRequest {
+  new({required this.enabled});
+  final bool enabled;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'enabled': enabled};
+}
+
+/// Information returned by the platform implementation after setting the
+/// canUseNetworkResourcesForLiveStreamingWhilePaused option.
+class SetCanUseNetworkResourcesForLiveStreamingWhilePausedResponse {
+  static SetCanUseNetworkResourcesForLiveStreamingWhilePausedResponse fromMap(Map<dynamic, dynamic> map) =>
+      SetCanUseNetworkResourcesForLiveStreamingWhilePausedResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// automaticallyWaitsToMinimizeStalling option.
+class SetPreferredPeakBitRateRequest {
+  new({required this.bitRate});
+  final double bitRate;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'bitRate': bitRate};
+}
+
+/// Information returned by the platform implementation after setting the
+/// automaticallyWaitsToMinimizeStalling option.
+class SetPreferredPeakBitRateResponse {
+  static SetPreferredPeakBitRateResponse fromMap(Map<dynamic, dynamic> map) => SetPreferredPeakBitRateResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// automaticallyWaitsToMinimizeStalling option.
+class SetAllowsExternalPlaybackRequest {
+  new({required this.allowsExternalPlayback});
+  final bool allowsExternalPlayback;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'allowsExternalPlayback': allowsExternalPlayback};
+}
+
+/// Information returned by the platform implementation after setting the
+/// automaticallyWaitsToMinimizeStalling option.
+class SetAllowsExternalPlaybackResponse {
+  static SetAllowsExternalPlaybackResponse fromMap(Map<dynamic, dynamic> map) => SetAllowsExternalPlaybackResponse();
+}
+
+/// Information communicated to the platform implementation when seeking to a
+/// position and index.
+class SeekRequest {
+  new({this.position, this.index});
+  final Duration? position;
+  final int? index;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'position': position?.inMicroseconds, 'index': index};
+}
+
+/// Information returned by the platform implementation after seeking to a
+/// position and index.
+class SeekResponse {
+  static SeekResponse fromMap(Map<dynamic, dynamic> map) => SeekResponse();
+}
+
+/// Information communicated to the platform implementation when setting the
+/// Android audio attributes.
+class SetAndroidAudioAttributesRequest {
+  new({required this.contentType, required this.flags, required this.usage});
+  final int contentType;
+  final int flags;
+  final int usage;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{'contentType': contentType, 'flags': flags, 'usage': usage};
+}
+
+/// Information returned by the platform implementation after setting the
+/// Android audio attributes.
+class SetAndroidAudioAttributesResponse {
+  static SetAndroidAudioAttributesResponse fromMap(Map<dynamic, dynamic> map) => SetAndroidAudioAttributesResponse();
+}
+
+/// The parameter of [AudioPlayerInstancePlatform.dispose] which is deprecated.
+class DisposeRequest {
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{};
+}
+
+/// The result of [AudioPlayerInstancePlatform.dispose] which is deprecated.
+class DisposeResponse {
+  static DisposeResponse fromMap(Map<dynamic, dynamic> map) => DisposeResponse();
+}
+
+/// Information communicated to the platform implementation when inserting audio
+/// sources into a concatenating audio source.
+class ConcatenatingInsertAllRequest {
+  new({required this.id, required this.index, required this.children, required this.shuffleOrder});
+  final String id;
+  final int index;
+  final List<AudioSourceMessage> children;
+  final List<int> shuffleOrder;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
+    'id': id,
+    'index': index,
+    'children': children.map((child) => child.toMap()).toList(),
+    'shuffleOrder': shuffleOrder,
+  };
+}
+
+/// Information returned by the platform implementation after inserting audio
+/// sources into a concatenating audio source.
+class ConcatenatingInsertAllResponse {
+  static ConcatenatingInsertAllResponse fromMap(Map<dynamic, dynamic> map) => ConcatenatingInsertAllResponse();
+}
+
+/// Information communicated to the platform implementation when removing audio
+/// sources from a concatenating audio source.
+class ConcatenatingRemoveRangeRequest {
+  new({required this.id, required this.startIndex, required this.endIndex, required this.shuffleOrder});
+  final String id;
+  final int startIndex;
+  final int endIndex;
+  final List<int> shuffleOrder;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
+    'id': id,
+    'startIndex': startIndex,
+    'endIndex': endIndex,
+    'shuffleOrder': shuffleOrder,
+  };
+}
+
+/// Information returned by the platform implementation after removing audio
+/// sources from a concatenating audio source.
+class ConcatenatingRemoveRangeResponse {
+  static ConcatenatingRemoveRangeResponse fromMap(Map<dynamic, dynamic> map) => ConcatenatingRemoveRangeResponse();
+}
+
+/// Information communicated to the platform implementation when moving an audio
+/// source within a concatenating audio source.
+class ConcatenatingMoveRequest {
+  new({required this.id, required this.currentIndex, required this.newIndex, required this.shuffleOrder});
+  final String id;
+  final int currentIndex;
+  final int newIndex;
+  final List<int> shuffleOrder;
+
+  Map<dynamic, dynamic> toMap() => <dynamic, dynamic>{
+    'id': id,
+    'currentIndex': currentIndex,
+    'newIndex': newIndex,
+    'shuffleOrder': shuffleOrder,
+  };
+}
+
+/// Information returned by the platform implementation after moving an audio
+/// source within a concatenating audio source.
+class ConcatenatingMoveResponse {
+  static ConcatenatingMoveResponse fromMap(Map<dynamic, dynamic> map) => ConcatenatingMoveResponse();
+}

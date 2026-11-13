@@ -16,11 +16,23 @@ let package = Package(
         .package(name: "FlutterFramework", path: "../FlutterFramework")
     ],
     targets: [
+        // The generated Objective-C wrapper Dart calls AudioPlayerApi through (see tool/ffigen.dart).
+        .target(
+            name: "audio_player_c",
+            path: "Sources/audio_player_c",
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("."),
+                .headerSearchPath("include")
+            ]
+        ),
         .target(
             name: "audio_player",
             dependencies: [
-                .product(name: "FlutterFramework", package: "FlutterFramework")
-            ]
+                .product(name: "FlutterFramework", package: "FlutterFramework"),
+                "audio_player_c"
+            ],
+            path: "Sources/audio_player"
         )
     ]
 )

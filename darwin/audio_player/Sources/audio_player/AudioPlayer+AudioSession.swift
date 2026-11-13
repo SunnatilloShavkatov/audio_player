@@ -79,7 +79,7 @@ extension AudioPlayer {
     /// Pauses because the system asked for it. Dart owns the `playing` state, so it is told as well.
     private func pauseForSystem() {
         pause()
-        dataEventChannel.sendEvent(["playing": false])
+        dataEvents.sendEvent(["playing": false])
     }
 
     private func resumeForSystem() {
@@ -87,7 +87,7 @@ extension AudioPlayer {
         playing = true
         player.rate = speed
         updatePosition()
-        dataEventChannel.sendEvent(["playing": true])
+        dataEvents.sendEvent(["playing": true])
     }
     #endif
 }

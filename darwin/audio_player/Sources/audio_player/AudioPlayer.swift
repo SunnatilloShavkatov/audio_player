@@ -1,11 +1,5 @@
 import AVFoundation
 
-#if os(iOS)
-import Flutter
-#elseif os(macOS)
-import FlutterMacOS
-#endif
-
 let errorAbort = 10_000_000
 
 enum ProcessingState: Int {
@@ -29,13 +23,12 @@ enum PlayerError: Error {
     case invalidArgument
 }
 
-/// One native player, driven over its own method channel.
+/// One native player, driven by the calls `AudioPlayerApi` routes to it and reporting back through its event sinks.
 ///
 /// The class holds the state; the behaviour lives in the `AudioPlayer+*.swift` extensions.
 final class AudioPlayer: NSObject {
-    let methodChannel: FlutterMethodChannel
-    let eventChannel: BetterEventChannel
-    let dataEventChannel: BetterEventChannel
+    let playbackEvents: PlayerEventSink
+    let dataEvents: PlayerEventSink
     let playerId: String
     let loadControl: LoadControl
     let handleAudioSessionActivation: Bool
@@ -57,8 +50,8 @@ final class AudioPlayer: NSObject {
     // Set when the current item hasn't been played yet so we aren't sure whether sufficient audio has been buffered.
     var bufferUnconfirmed = false
     var seekPos = CMTime.invalid
-    var loadResult: FlutterResult?
-    var playResult: FlutterResult?
+    var loadResult: NativeResult?
+    var playResult: NativeResult?
     var automaticallyWaitsToMinimizeStalling = true
     var allowsExternalPlayback = false
     var playing = false
@@ -83,7 +76,6 @@ final class AudioPlayer: NSObject {
     var audioSessionObservers: [NSObjectProtocol] = []
 
     init(
-        registrar: FlutterPluginRegistrar,
         playerId: String,
         loadConfiguration: [String: Any]?,
         handleInterruptions: Bool,
@@ -91,10 +83,8 @@ final class AudioPlayer: NSObject {
     ) {
         self.playerId = playerId
         self.handleAudioSessionActivation = handleAudioSessionActivation
-        let messenger = registrar.binaryMessenger
-        methodChannel = FlutterMethodChannel(name: "uz.plugin.audio_player.methods.\(playerId)", binaryMessenger: messenger)
-        eventChannel = BetterEventChannel(name: "uz.plugin.audio_player.events.\(playerId)", messenger: messenger)
-        dataEventChannel = BetterEventChannel(name: "uz.plugin.audio_player.data.\(playerId)", messenger: messenger)
+        playbackEvents = PlayerEventSink(kind: .playback, playerId: playerId)
+        dataEvents = PlayerEventSink(kind: .data, playerId: playerId)
 
         loadControl = LoadControl()
         super.init()
@@ -106,9 +96,6 @@ final class AudioPlayer: NSObject {
             automaticallyWaitsToMinimizeStalling = (map["automaticallyWaitsToMinimizeStalling"] as? NSNumber)?.boolValue ?? false
         }
 
-        methodChannel.setMethodCallHandler { [weak self] call, result in
-            self?.handleMethodCall(call, result: result)
-        }
         if handleInterruptions {
             observeAudioSession()
         }
@@ -140,14 +127,12 @@ final class AudioPlayer: NSObject {
             NotificationCenter.default.removeObserver(observer)
         }
         audioSessionObservers = []
-        // The player is only created by the first successful load, but the channels exist from init and must be
-        // released either way.
+        // The player is only created by the first successful load.
         if let player {
             if processingState != .idle {
                 player.pause()
                 updatePosition()
-                // If used just before destroying the current FlutterEngine, sending results in:
-                // NSInternalInconsistencyException: 'Sending a message before the FlutterEngine has been run.'
+                // If used while the FlutterEngine is going away, the Dart side is gone: nothing may be sent.
                 if !calledFromDeinit {
                     broadcastPlaybackEvent()
                 }
@@ -160,7 +145,7 @@ final class AudioPlayer: NSObject {
         // Replying to a pending call also goes through the messenger.
         if !calledFromDeinit {
             playResult?([String: Any]())
-            loadResult?(FlutterError(code: "\(errorAbort)", message: "Connection aborted", details: nil))
+            loadResult?(NativeError(code: "\(errorAbort)", message: "Connection aborted", details: nil))
         }
         playResult = nil
         loadResult = nil
@@ -170,10 +155,7 @@ final class AudioPlayer: NSObject {
         }
         indexedAudioSources = []
         audioSource = nil
-        eventChannel.dispose(calledFromDeinit: calledFromDeinit)
-        dataEventChannel.dispose(calledFromDeinit: calledFromDeinit)
-        if !calledFromDeinit {
-            methodChannel.setMethodCallHandler(nil)
-        }
+        playbackEvents.dispose(calledFromDeinit: calledFromDeinit)
+        dataEvents.dispose(calledFromDeinit: calledFromDeinit)
     }
 }

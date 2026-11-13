@@ -165,7 +165,7 @@ internal class PlayerEventListener(private val audioPlayer: AudioPlayer) : Playe
                 it.success(emptyMap<String, Any?>())
                 playResult = null
             }
-            dataEventChannel.success(mapOf("playing" to false))
+            events.playerData(mapOf("playing" to false))
             broadcastPendingPlaybackEvent()
         }
     }
