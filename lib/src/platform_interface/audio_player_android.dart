@@ -35,14 +35,16 @@ class AndroidAudioPlayerTransport extends NativeAudioPlayerTransport {
           onError$async: true,
         ),
       );
-      using((arena) {
-        final jMethod = method.toJString()..releasedBy(arena);
-        final jRequest = request.toJString()..releasedBy(arena);
-        if (playerId == null) {
-          AudioPlayerApi.call(jMethod, jRequest, callback);
-        } else {
-          AudioPlayerApi.callPlayer(playerId.toJString()..releasedBy(arena), jMethod, jRequest, callback);
-        }
+      handOver(callback, (proxy) {
+        using((arena) {
+          final jMethod = method.toJString()..releasedBy(arena);
+          final jRequest = request.toJString()..releasedBy(arena);
+          if (playerId == null) {
+            AudioPlayerApi.call(jMethod, jRequest, proxy);
+          } else {
+            AudioPlayerApi.callPlayer(playerId.toJString()..releasedBy(arena), jMethod, jRequest, proxy);
+          }
+        });
       });
     } on JThrowable catch (e) {
       return Future<String>.error(PlatformException(code: 'error', message: e.toString()));
@@ -52,7 +54,7 @@ class AndroidAudioPlayerTransport extends NativeAudioPlayerTransport {
 
   @override
   void listen() {
-    AudioPlayerApi.playbackListener = AudioPlayerApi$PlaybackListener.implement(
+    final listener = AudioPlayerApi$PlaybackListener.implement(
       $AudioPlayerApi$PlaybackListener(
         onPlaybackEvent: (JString? playerId, JString? json) {
           if (playerId != null && json != null) {
@@ -79,6 +81,17 @@ class AndroidAudioPlayerTransport extends NativeAudioPlayerTransport {
         onPlaybackError$async: true,
       ),
     );
+    handOver(listener, (proxy) => AudioPlayerApi.playbackListener = proxy);
+  }
+}
+
+/// Passes a Dart-implemented JNI [proxy] to Kotlin and releases Dart's own reference afterwards: Kotlin holds its
+/// own, and the port closes once Java collects the proxy. Without it each call pins a global ref until Dart GC.
+void handOver<T extends JObject>(T proxy, void Function(T proxy) pass) {
+  try {
+    pass(proxy);
+  } finally {
+    proxy.release();
   }
 }
 
