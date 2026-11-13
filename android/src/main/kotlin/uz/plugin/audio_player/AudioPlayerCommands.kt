@@ -1,3 +1,5 @@
+@file:androidx.annotation.OptIn(markerClass = [androidx.media3.common.util.UnstableApi::class])
+
 package uz.plugin.audio_player
 
 import androidx.media3.common.AudioAttributes
