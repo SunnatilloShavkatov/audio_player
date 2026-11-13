@@ -1,3 +1,11 @@
+## 1.1.1
+
+* Android: JNI callback and listener proxies are released on the Dart side once handed to Kotlin, instead of pinning a global reference until the next Dart GC.
+* Android: media3 `UnstableApi` is opted in per file (`androidx.annotation.OptIn`), so `lint` passes with `UnsafeOptInUsageError` enabled.
+* Android: the plugin's `kotlin { compilerOptions }` block moved to the top level; it builds with AGP built-in Kotlin on and off.
+* `tool/jnigen.dart` reads the freshest compiled facade instead of a hardcoded class directory.
+* Example: Gradle daemon on JDK 21, foojay resolver 1.0.0, no `android.enableJetifier`.
+
 ## 1.1.0
 
 * Replace method and event channels with direct native calls: JNI (`jni`, `jnigen`) on Android and the Objective-C
