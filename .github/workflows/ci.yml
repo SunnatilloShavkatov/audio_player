@@ -108,6 +108,10 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
           pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('**/pubspec.yaml') }}
+      - name: Install Patrol CLI
+        run: dart pub global activate patrol_cli
+      - run: flutter pub get
+        working-directory: example
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
@@ -118,4 +122,4 @@ jobs:
           ram-size: 4096M
           disable-animations: true
           working-directory: example
-          script: flutter test integration_test
+          script: patrol test -d emulator-5554
