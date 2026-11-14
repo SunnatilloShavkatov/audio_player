@@ -133,6 +133,7 @@ internal class AudioPlayer(
         if (exoPlayer != null) return
         val renderersFactory = RenderersFactory { eventHandler, videoListener, audioListener, textOutput, metadataOutput ->
             val defaultRenderers: Array<Renderer> = DefaultRenderersFactory(context)
+                .setEnableDecoderFallback(true)
                 .createRenderers(eventHandler, videoListener, audioListener, textOutput, metadataOutput)
             defaultRenderers + ObserverRenderer(handler) {
                 if (updatePositionIfChanged()) {

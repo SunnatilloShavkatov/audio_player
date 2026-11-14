@@ -1,3 +1,7 @@
+## 1.1.2
+
+* Android: the audio renderer falls back to the next decoder when the preferred one fails to initialize or decode, instead of failing playback with a generic source error on some devices.
+
 ## 1.1.1
 
 * Android: JNI callback and listener proxies are released on the Dart side once handed to Kotlin, instead of pinning a global reference until the next Dart GC.
