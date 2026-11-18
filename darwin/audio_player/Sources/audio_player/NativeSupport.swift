@@ -26,17 +26,20 @@ final class PlayerEventSink {
 
     private let kind: Kind
     private let playerId: String
+    /// The engine that owns the player; weak, so a late event of a detached engine goes nowhere.
+    private weak var scope: EngineScope?
     private var closed = false
 
-    init(kind: Kind, playerId: String) {
+    init(kind: Kind, playerId: String, scope: EngineScope) {
         self.kind = kind
         self.playerId = playerId
+        self.scope = scope
     }
 
     /// Sends an event map, or a `NativeError` as an error on the playback event stream.
     func sendEvent(_ event: Any?) {
         guard !closed else { return }
-        AudioPlayerApi.deliver(kind, playerId: playerId, event: event)
+        scope?.deliver(kind, playerId: playerId, event: event)
     }
 
     /// Stops all delivery. Nothing is sent, so this is safe while the engine is going away

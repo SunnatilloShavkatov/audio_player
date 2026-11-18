@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:audio_player/src/platform_interface/audio_player_platform_interface.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +11,13 @@ abstract class NativeAudioPlayerTransport {
   final _playbackEvents = <String, StreamController<PlaybackEventMessage>>{};
   final _playerData = <String, StreamController<PlayerDataMessage>>{};
   bool _listening = false;
+
+  /// What native code receives for an engine id: [id], or 0 when Dart has none (a background isolate). Native
+  /// code then uses the only attached engine, and fails the call when several are attached.
+  static int engineIdForNative(int? id) => id ?? 0;
+
+  /// The id of the engine this isolate runs in, so native code answers with that engine's players only.
+  int get engineId => engineIdForNative(PlatformDispatcher.instance.engineId);
 
   /// Sends the JSON [request] of [method] (to player [playerId], or to the plugin when null) and returns the JSON
   /// reply. Native failures complete with a [PlatformException].

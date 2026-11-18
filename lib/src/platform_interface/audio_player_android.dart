@@ -40,9 +40,9 @@ class AndroidAudioPlayerTransport extends NativeAudioPlayerTransport {
           final jMethod = method.toJString()..releasedBy(arena);
           final jRequest = request.toJString()..releasedBy(arena);
           if (playerId == null) {
-            AudioPlayerApi.call(jMethod, jRequest, proxy);
+            AudioPlayerApi.call(engineId, jMethod, jRequest, proxy);
           } else {
-            AudioPlayerApi.callPlayer(playerId.toJString()..releasedBy(arena), jMethod, jRequest, proxy);
+            AudioPlayerApi.callPlayer(engineId, playerId.toJString()..releasedBy(arena), jMethod, jRequest, proxy);
           }
         });
       });
@@ -81,7 +81,7 @@ class AndroidAudioPlayerTransport extends NativeAudioPlayerTransport {
         onPlaybackError$async: true,
       ),
     );
-    handOver(listener, (proxy) => AudioPlayerApi.playbackListener = proxy);
+    handOver(listener, (proxy) => AudioPlayerApi.setPlaybackListener(engineId, proxy));
   }
 }
 

@@ -8,12 +8,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface AudioPlayerApi : NSObject
 
-+ (void)setPlaybackListenersWithPlaybackEvent:(nullable void (^)(NSString *playerId, NSString *json))playbackEvent
-                                   playerData:(nullable void (^)(NSString *playerId, NSString *json))playerData
-                                playbackError:(nullable void (^)(NSString *playerId, NSString *code, NSString *_Nullable message, NSString *_Nullable details))playbackError;
+// `engineId` is the caller's `PlatformDispatcher.instance.engineId` (0 when unknown): each engine has its own
+// players and listeners.
++ (void)setPlaybackListenersForEngine:(int64_t)engineId
+                        playbackEvent:(nullable void (^)(NSString *playerId, NSString *json))playbackEvent
+                           playerData:(nullable void (^)(NSString *playerId, NSString *json))playerData
+                        playbackError:(nullable void (^)(NSString *playerId, NSString *code, NSString *_Nullable message, NSString *_Nullable details))playbackError;
 
-+ (void)callMain:(NSString *)method request:(NSString *)request callback:(void (^)(NSString *_Nullable json, NSString *_Nullable code, NSString *_Nullable message, NSString *_Nullable details))callback;
-+ (void)callPlayer:(NSString *)playerId method:(NSString *)method request:(NSString *)request callback:(void (^)(NSString *_Nullable json, NSString *_Nullable code, NSString *_Nullable message, NSString *_Nullable details))callback;
++ (void)callMainForEngine:(int64_t)engineId method:(NSString *)method request:(NSString *)request callback:(void (^)(NSString *_Nullable json, NSString *_Nullable code, NSString *_Nullable message, NSString *_Nullable details))callback;
++ (void)callPlayerForEngine:(int64_t)engineId playerId:(NSString *)playerId method:(NSString *)method request:(NSString *)request callback:(void (^)(NSString *_Nullable json, NSString *_Nullable code, NSString *_Nullable message, NSString *_Nullable details))callback;
 
 @end
 

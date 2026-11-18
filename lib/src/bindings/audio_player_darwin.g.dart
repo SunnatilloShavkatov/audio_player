@@ -75,27 +75,30 @@ extension type AudioPlayerApi._(objc.ObjCObject object$) implements objc.ObjCObj
     return AudioPlayerApi.fromPointer($ret, retain: false, release: true);
   }
 
-  /// callMain:request:callback:
-  static void callMain(
-    objc.NSString method, {
+  /// callMainForEngine:method:request:callback:
+  static void callMainForEngine(
+    int engineId, {
+    required objc.NSString method,
     required objc.NSString request,
     required objc.ObjCBlock<ffi.Void Function(objc.NSString?, objc.NSString?, objc.NSString?, objc.NSString?)> callback,
   }) {
     final _$$ref = method.ref;
     final _$$ref$1 = request.ref;
     final _$$ref$2 = callback.ref;
-    _objc_msgSend_18qun1e(
+    _objc_msgSend_dp58nc(
       _class_AudioPlayerApi,
-      _sel_callMain_request_callback_,
+      _sel_callMainForEngine_method_request_callback_,
+      engineId,
       _$$ref.pointer,
       _$$ref$1.pointer,
       _$$ref$2.pointer,
     );
   }
 
-  /// callPlayer:method:request:callback:
-  static void callPlayer(
-    objc.NSString playerId, {
+  /// callPlayerForEngine:playerId:method:request:callback:
+  static void callPlayerForEngine(
+    int engineId, {
+    required objc.NSString playerId,
     required objc.NSString method,
     required objc.NSString request,
     required objc.ObjCBlock<ffi.Void Function(objc.NSString?, objc.NSString?, objc.NSString?, objc.NSString?)> callback,
@@ -104,9 +107,10 @@ extension type AudioPlayerApi._(objc.ObjCObject object$) implements objc.ObjCObj
     final _$$ref$1 = method.ref;
     final _$$ref$2 = request.ref;
     final _$$ref$3 = callback.ref;
-    _objc_msgSend_m7tls4(
+    _objc_msgSend_1xkiqca(
       _class_AudioPlayerApi,
-      _sel_callPlayer_method_request_callback_,
+      _sel_callPlayerForEngine_playerId_method_request_callback_,
+      engineId,
       _$$ref.pointer,
       _$$ref$1.pointer,
       _$$ref$2.pointer,
@@ -120,18 +124,20 @@ extension type AudioPlayerApi._(objc.ObjCObject object$) implements objc.ObjCObj
     return AudioPlayerApi.fromPointer($ret, retain: false, release: true);
   }
 
-  /// setPlaybackListenersWithPlaybackEvent:playerData:playbackError:
-  static void setPlaybackListenersWithPlaybackEvent(
-    objc.ObjCBlock<ffi.Void Function(objc.NSString, objc.NSString)>? playbackEvent, {
+  /// setPlaybackListenersForEngine:playbackEvent:playerData:playbackError:
+  static void setPlaybackListenersForEngine(
+    int engineId, {
+    objc.ObjCBlock<ffi.Void Function(objc.NSString, objc.NSString)>? playbackEvent,
     objc.ObjCBlock<ffi.Void Function(objc.NSString, objc.NSString)>? playerData,
     objc.ObjCBlock<ffi.Void Function(objc.NSString, objc.NSString, objc.NSString?, objc.NSString?)>? playbackError,
   }) {
     final _$$ref = playbackEvent?.ref;
     final _$$ref$1 = playerData?.ref;
     final _$$ref$2 = playbackError?.ref;
-    _objc_msgSend_yr4bfi(
+    _objc_msgSend_c2u0b8(
       _class_AudioPlayerApi,
-      _sel_setPlaybackListenersWithPlaybackEvent_playerData_playbackError_,
+      _sel_setPlaybackListenersForEngine_playbackEvent_playerData_playbackError_,
+      engineId,
       _$$ref?.pointer ?? ffi.nullptr,
       _$$ref$1?.pointer ?? ffi.nullptr,
       _$$ref$2?.pointer ?? ffi.nullptr,
@@ -896,27 +902,6 @@ final _objc_msgSend_151sglz = objc.msgSendPointer
     .asFunction<
       ffi.Pointer<objc.ObjCObjectImpl> Function(ffi.Pointer<objc.ObjCObjectImpl>, ffi.Pointer<objc.ObjCSelector>)
     >();
-final _objc_msgSend_18qun1e = objc.msgSendPointer
-    .cast<
-      ffi.NativeFunction<
-        ffi.Void Function(
-          ffi.Pointer<objc.ObjCObjectImpl>,
-          ffi.Pointer<objc.ObjCSelector>,
-          ffi.Pointer<objc.ObjCObjectImpl>,
-          ffi.Pointer<objc.ObjCObjectImpl>,
-          ffi.Pointer<objc.ObjCBlockImpl>,
-        )
-      >
-    >()
-    .asFunction<
-      void Function(
-        ffi.Pointer<objc.ObjCObjectImpl>,
-        ffi.Pointer<objc.ObjCSelector>,
-        ffi.Pointer<objc.ObjCObjectImpl>,
-        ffi.Pointer<objc.ObjCObjectImpl>,
-        ffi.Pointer<objc.ObjCBlockImpl>,
-      )
-    >();
 final _objc_msgSend_19nvye5 = objc.msgSendPointer
     .cast<
       ffi.NativeFunction<
@@ -947,12 +932,13 @@ final _objc_msgSend_1cwp428 = objc.msgSendPointer
         ffi.Pointer<objc.NSZone>,
       )
     >();
-final _objc_msgSend_m7tls4 = objc.msgSendPointer
+final _objc_msgSend_1xkiqca = objc.msgSendPointer
     .cast<
       ffi.NativeFunction<
         ffi.Void Function(
           ffi.Pointer<objc.ObjCObjectImpl>,
           ffi.Pointer<objc.ObjCSelector>,
+          ffi.Int64,
           ffi.Pointer<objc.ObjCObjectImpl>,
           ffi.Pointer<objc.ObjCObjectImpl>,
           ffi.Pointer<objc.ObjCObjectImpl>,
@@ -964,18 +950,20 @@ final _objc_msgSend_m7tls4 = objc.msgSendPointer
       void Function(
         ffi.Pointer<objc.ObjCObjectImpl>,
         ffi.Pointer<objc.ObjCSelector>,
+        int,
         ffi.Pointer<objc.ObjCObjectImpl>,
         ffi.Pointer<objc.ObjCObjectImpl>,
         ffi.Pointer<objc.ObjCObjectImpl>,
         ffi.Pointer<objc.ObjCBlockImpl>,
       )
     >();
-final _objc_msgSend_yr4bfi = objc.msgSendPointer
+final _objc_msgSend_c2u0b8 = objc.msgSendPointer
     .cast<
       ffi.NativeFunction<
         ffi.Void Function(
           ffi.Pointer<objc.ObjCObjectImpl>,
           ffi.Pointer<objc.ObjCSelector>,
+          ffi.Int64,
           ffi.Pointer<objc.ObjCBlockImpl>,
           ffi.Pointer<objc.ObjCBlockImpl>,
           ffi.Pointer<objc.ObjCBlockImpl>,
@@ -986,8 +974,32 @@ final _objc_msgSend_yr4bfi = objc.msgSendPointer
       void Function(
         ffi.Pointer<objc.ObjCObjectImpl>,
         ffi.Pointer<objc.ObjCSelector>,
+        int,
         ffi.Pointer<objc.ObjCBlockImpl>,
         ffi.Pointer<objc.ObjCBlockImpl>,
+        ffi.Pointer<objc.ObjCBlockImpl>,
+      )
+    >();
+final _objc_msgSend_dp58nc = objc.msgSendPointer
+    .cast<
+      ffi.NativeFunction<
+        ffi.Void Function(
+          ffi.Pointer<objc.ObjCObjectImpl>,
+          ffi.Pointer<objc.ObjCSelector>,
+          ffi.Int64,
+          ffi.Pointer<objc.ObjCObjectImpl>,
+          ffi.Pointer<objc.ObjCObjectImpl>,
+          ffi.Pointer<objc.ObjCBlockImpl>,
+        )
+      >
+    >()
+    .asFunction<
+      void Function(
+        ffi.Pointer<objc.ObjCObjectImpl>,
+        ffi.Pointer<objc.ObjCSelector>,
+        int,
+        ffi.Pointer<objc.ObjCObjectImpl>,
+        ffi.Pointer<objc.ObjCObjectImpl>,
         ffi.Pointer<objc.ObjCBlockImpl>,
       )
     >();
@@ -997,13 +1009,17 @@ late final _sel_arg0 = objc.registerName("arg0");
 late final _sel_arg1 = objc.registerName("arg1");
 late final _sel_arg2 = objc.registerName("arg2");
 late final _sel_arg3 = objc.registerName("arg3");
-late final _sel_callMain_request_callback_ = objc.registerName("callMain:request:callback:");
-late final _sel_callPlayer_method_request_callback_ = objc.registerName("callPlayer:method:request:callback:");
+late final _sel_callMainForEngine_method_request_callback_ = objc.registerName(
+  "callMainForEngine:method:request:callback:",
+);
+late final _sel_callPlayerForEngine_playerId_method_request_callback_ = objc.registerName(
+  "callPlayerForEngine:playerId:method:request:callback:",
+);
 late final _sel_init = objc.registerName("init");
 late final _sel_isKindOfClass_ = objc.registerName("isKindOfClass:");
 late final _sel_new = objc.registerName("new");
-late final _sel_setPlaybackListenersWithPlaybackEvent_playerData_playbackError_ = objc.registerName(
-  "setPlaybackListenersWithPlaybackEvent:playerData:playbackError:",
+late final _sel_setPlaybackListenersForEngine_playbackEvent_playerData_playbackError_ = objc.registerName(
+  "setPlaybackListenersForEngine:playbackEvent:playerData:playbackError:",
 );
 typedef instancetype = ffi.Pointer<objc.ObjCObjectImpl>;
 typedef Dartinstancetype = objc.ObjCObject;

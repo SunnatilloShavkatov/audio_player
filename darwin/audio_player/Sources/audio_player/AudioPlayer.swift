@@ -77,14 +77,15 @@ final class AudioPlayer: NSObject {
 
     init(
         playerId: String,
+        scope: EngineScope,
         loadConfiguration: [String: Any]?,
         handleInterruptions: Bool,
         handleAudioSessionActivation: Bool
     ) {
         self.playerId = playerId
         self.handleAudioSessionActivation = handleAudioSessionActivation
-        playbackEvents = PlayerEventSink(kind: .playback, playerId: playerId)
-        dataEvents = PlayerEventSink(kind: .data, playerId: playerId)
+        playbackEvents = PlayerEventSink(kind: .playback, playerId: playerId, scope: scope)
+        dataEvents = PlayerEventSink(kind: .data, playerId: playerId, scope: scope)
 
         loadControl = LoadControl()
         super.init()

@@ -13,7 +13,7 @@ dependencies:
   rxdart: ^0.28.0
   audio_player:
     path: ../
-  material_ui: ^1.11.0
+  material_ui: ^1.11.1
 
 dev_dependencies:
   flutter_test:

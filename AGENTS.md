@@ -77,3 +77,7 @@ cd example && patrol test -d <device id> -t patrol_test/<file>.dart   # one file
   listener blocks or reply to pending calls: the Dart side is going away. Check `calledFromDeinit` before any send.
 - Explicit Dart disposal (`disposePlayer`, `disposeAllPlayers`) may send the final events and replies.
 - Android mirrors this in `AudioPlayer.kt` / `AudioPlayerHost.kt` (`detach`, `restart`); keep both in sync.
+- State is per engine: Dart passes `PlatformDispatcher.instance.engineId` (0 when null) with every call; Android keys
+  `AudioPlayerHost` by it, Darwin keys `EngineScope` by the registrar's engine identifier. Id 0 falls back to the only
+  attached engine; with several attached the call fails with `detached`, never lands in another engine. Detaching an
+  engine releases only its own players.

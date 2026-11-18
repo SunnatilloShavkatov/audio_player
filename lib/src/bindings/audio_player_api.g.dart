@@ -485,35 +485,40 @@ extension type AudioPlayerApi._(jni$_.JObject _$this) implements jni$_.JObject {
   /// The returned object must be released after use, by calling the [release] method.
   static AudioPlayerApi get INSTANCE => _id_INSTANCE.get(_class, AudioPlayerApi.type) as AudioPlayerApi;
 
-  static final _id_set$playbackListener = _class.staticMethodId(
+  static final _id_setPlaybackListener = _class.staticMethodId(
     r'setPlaybackListener',
-    r'(Luz/plugin/audio_player/AudioPlayerApi$PlaybackListener;)V',
+    r'(JLuz/plugin/audio_player/AudioPlayerApi$PlaybackListener;)V',
   );
 
-  static final _set$playbackListener =
+  static final _setPlaybackListener =
       jni$_.ProtectedJniExtensions.lookup<
             jni$_.NativeFunction<
               jni$_.JThrowablePtr Function(
                 jni$_.Pointer<jni$_.Void>,
                 jni$_.JMethodIDPtr,
-                jni$_.VarArgs<(jni$_.Pointer<jni$_.Void>,)>,
+                jni$_.VarArgs<(jni$_.Int64, jni$_.Pointer<jni$_.Void>)>,
               )
             >
           >('globalEnv_CallStaticVoidMethod')
           .asFunction<
-            jni$_.JThrowablePtr Function(jni$_.Pointer<jni$_.Void>, jni$_.JMethodIDPtr, jni$_.Pointer<jni$_.Void>)
+            jni$_.JThrowablePtr Function(
+              jni$_.Pointer<jni$_.Void>,
+              jni$_.JMethodIDPtr,
+              core$_.int,
+              jni$_.Pointer<jni$_.Void>,
+            )
           >();
 
-  /// from: `public fun setPlaybackListener(listener: uz.plugin.audio_player.AudioPlayerApi.PlaybackListener?): kotlin.Unit`
-  static set playbackListener(AudioPlayerApi$PlaybackListener? playbackListener) {
+  /// from: `public fun setPlaybackListener(engineId: kotlin.Long, listener: uz.plugin.audio_player.AudioPlayerApi.PlaybackListener?): kotlin.Unit`
+  static void setPlaybackListener(core$_.int j, AudioPlayerApi$PlaybackListener? playbackListener) {
     final _$$classRef = _class.reference;
     final _$playbackListener = playbackListener?.reference ?? jni$_.jNullReference;
-    _set$playbackListener(_$$classRef.pointer, _id_set$playbackListener.pointer, _$playbackListener.pointer).check();
+    _setPlaybackListener(_$$classRef.pointer, _id_setPlaybackListener.pointer, j, _$playbackListener.pointer).check();
   }
 
   static final _id_call = _class.staticMethodId(
     r'call',
-    r'(Ljava/lang/String;Ljava/lang/String;Luz/plugin/audio_player/AudioPlayerApi$ResultCallback;)V',
+    r'(JLjava/lang/String;Ljava/lang/String;Luz/plugin/audio_player/AudioPlayerApi$ResultCallback;)V',
   );
 
   static final _call =
@@ -522,7 +527,9 @@ extension type AudioPlayerApi._(jni$_.JObject _$this) implements jni$_.JObject {
               jni$_.JThrowablePtr Function(
                 jni$_.Pointer<jni$_.Void>,
                 jni$_.JMethodIDPtr,
-                jni$_.VarArgs<(jni$_.Pointer<jni$_.Void>, jni$_.Pointer<jni$_.Void>, jni$_.Pointer<jni$_.Void>)>,
+                jni$_.VarArgs<
+                  (jni$_.Int64, jni$_.Pointer<jni$_.Void>, jni$_.Pointer<jni$_.Void>, jni$_.Pointer<jni$_.Void>)
+                >,
               )
             >
           >('globalEnv_CallStaticVoidMethod')
@@ -530,24 +537,37 @@ extension type AudioPlayerApi._(jni$_.JObject _$this) implements jni$_.JObject {
             jni$_.JThrowablePtr Function(
               jni$_.Pointer<jni$_.Void>,
               jni$_.JMethodIDPtr,
+              core$_.int,
               jni$_.Pointer<jni$_.Void>,
               jni$_.Pointer<jni$_.Void>,
               jni$_.Pointer<jni$_.Void>,
             )
           >();
 
-  /// from: `public fun call(method: kotlin.String, request: kotlin.String?, callback: uz.plugin.audio_player.AudioPlayerApi.ResultCallback): kotlin.Unit`
-  static void call(jni$_.JString string, jni$_.JString? string1, AudioPlayerApi$ResultCallback resultCallback) {
+  /// from: `public fun call(engineId: kotlin.Long, method: kotlin.String, request: kotlin.String?, callback: uz.plugin.audio_player.AudioPlayerApi.ResultCallback): kotlin.Unit`
+  static void call(
+    core$_.int j,
+    jni$_.JString string,
+    jni$_.JString? string1,
+    AudioPlayerApi$ResultCallback resultCallback,
+  ) {
     final _$$classRef = _class.reference;
     final _$string = string.reference;
     final _$string1 = string1?.reference ?? jni$_.jNullReference;
     final _$resultCallback = resultCallback.reference;
-    _call(_$$classRef.pointer, _id_call.pointer, _$string.pointer, _$string1.pointer, _$resultCallback.pointer).check();
+    _call(
+      _$$classRef.pointer,
+      _id_call.pointer,
+      j,
+      _$string.pointer,
+      _$string1.pointer,
+      _$resultCallback.pointer,
+    ).check();
   }
 
   static final _id_callPlayer = _class.staticMethodId(
     r'callPlayer',
-    r'(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Luz/plugin/audio_player/AudioPlayerApi$ResultCallback;)V',
+    r'(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Luz/plugin/audio_player/AudioPlayerApi$ResultCallback;)V',
   );
 
   static final _callPlayer =
@@ -558,6 +578,7 @@ extension type AudioPlayerApi._(jni$_.JObject _$this) implements jni$_.JObject {
                 jni$_.JMethodIDPtr,
                 jni$_.VarArgs<
                   (
+                    jni$_.Int64,
                     jni$_.Pointer<jni$_.Void>,
                     jni$_.Pointer<jni$_.Void>,
                     jni$_.Pointer<jni$_.Void>,
@@ -571,6 +592,7 @@ extension type AudioPlayerApi._(jni$_.JObject _$this) implements jni$_.JObject {
             jni$_.JThrowablePtr Function(
               jni$_.Pointer<jni$_.Void>,
               jni$_.JMethodIDPtr,
+              core$_.int,
               jni$_.Pointer<jni$_.Void>,
               jni$_.Pointer<jni$_.Void>,
               jni$_.Pointer<jni$_.Void>,
@@ -578,8 +600,9 @@ extension type AudioPlayerApi._(jni$_.JObject _$this) implements jni$_.JObject {
             )
           >();
 
-  /// from: `public fun callPlayer(playerId: kotlin.String, method: kotlin.String, request: kotlin.String?, callback: uz.plugin.audio_player.AudioPlayerApi.ResultCallback): kotlin.Unit`
+  /// from: `public fun callPlayer(engineId: kotlin.Long, playerId: kotlin.String, method: kotlin.String, request: kotlin.String?, callback: uz.plugin.audio_player.AudioPlayerApi.ResultCallback): kotlin.Unit`
   static void callPlayer(
+    core$_.int j,
     jni$_.JString string,
     jni$_.JString string1,
     jni$_.JString? string2,
@@ -593,6 +616,7 @@ extension type AudioPlayerApi._(jni$_.JObject _$this) implements jni$_.JObject {
     _callPlayer(
       _$$classRef.pointer,
       _id_callPlayer.pointer,
+      j,
       _$string.pointer,
       _$string1.pointer,
       _$string2.pointer,

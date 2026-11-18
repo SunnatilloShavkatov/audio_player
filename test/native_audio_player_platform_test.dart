@@ -222,4 +222,14 @@ void main() {
       }
     });
   });
+
+  group('NativeAudioPlayerTransport.engineIdForNative', () {
+    test('no engine id becomes 0, so native falls back to the only engine', () {
+      expect(NativeAudioPlayerTransport.engineIdForNative(null), 0);
+    });
+
+    test('an engine id is passed through', () {
+      expect(NativeAudioPlayerTransport.engineIdForNative(7), 7);
+    });
+  });
 }

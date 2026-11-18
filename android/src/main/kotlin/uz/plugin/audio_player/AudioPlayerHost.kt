@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import io.flutter.Log
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The players of one attached Flutter engine, behind [AudioPlayerApi]. Players are used on the main thread only:
@@ -13,9 +14,28 @@ import io.flutter.Log
 internal class AudioPlayerHost(private val applicationContext: Context) {
 
     companion object {
-        /** The host of the attached engine; `null` while none is attached. */
-        @Volatile
-        var current: AudioPlayerHost? = null
+        /** What Dart sends when it has no engine id (a background isolate); Flutter numbers engines from 1. */
+        const val NO_ENGINE = 0L
+
+        /** The host of every attached engine, by engine id. */
+        private val hosts = ConcurrentHashMap<Long, AudioPlayerHost>()
+
+        fun attach(engineId: Long, host: AudioPlayerHost) {
+            hosts.put(engineId, host)?.detach()
+        }
+
+        /** Releases [host] and forgets it, unless another host already replaced it for [engineId]. */
+        fun detach(engineId: Long, host: AudioPlayerHost) {
+            hosts.remove(engineId, host)
+            host.detach()
+        }
+
+        /**
+         * The host of the calling engine. Without an engine id the only attached host is used; with several
+         * attached, `null`, so a call never lands in another engine.
+         */
+        fun forEngine(engineId: Long): AudioPlayerHost? =
+            if (engineId == NO_ENGINE) hosts.values.singleOrNull() else hosts[engineId]
 
         private val mainHandler = Handler(Looper.getMainLooper())
 

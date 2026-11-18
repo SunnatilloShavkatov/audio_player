@@ -36,10 +36,16 @@ class DarwinAudioPlayerTransport extends NativeAudioPlayerTransport {
         }
       });
       if (playerId == null) {
-        AudioPlayerApi.callMain(method.toNSString(), request: request.toNSString(), callback: callback);
+        AudioPlayerApi.callMainForEngine(
+          engineId,
+          method: method.toNSString(),
+          request: request.toNSString(),
+          callback: callback,
+        );
       } else {
-        AudioPlayerApi.callPlayer(
-          playerId.toNSString(),
+        AudioPlayerApi.callPlayerForEngine(
+          engineId,
+          playerId: playerId.toNSString(),
           method: method.toNSString(),
           request: request.toNSString(),
           callback: callback,
@@ -53,8 +59,9 @@ class DarwinAudioPlayerTransport extends NativeAudioPlayerTransport {
 
   @override
   void listen() {
-    AudioPlayerApi.setPlaybackListenersWithPlaybackEvent(
-      ObjCBlock_ffiVoid_NSString_NSString.listener(
+    AudioPlayerApi.setPlaybackListenersForEngine(
+      engineId,
+      playbackEvent: ObjCBlock_ffiVoid_NSString_NSString.listener(
         (objc.NSString playerId, objc.NSString json) => onPlaybackEvent(playerId.toDartString(), json.toDartString()),
       ),
       playerData: ObjCBlock_ffiVoid_NSString_NSString.listener(

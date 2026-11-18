@@ -1,3 +1,10 @@
+## Unreleased
+
+### Fixed
+
+* Apps that run more than one Flutter engine: each engine now has its own players and playback events on Android, iOS
+  and macOS, and closing one engine no longer stops playback in another.
+
 ## 1.1.2
 
 * Android: the audio renderer falls back to the next decoder when the preferred one fails to initialize or decode, instead of failing playback with a generic source error on some devices.

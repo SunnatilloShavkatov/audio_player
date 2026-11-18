@@ -10,82 +10,127 @@ import Foundation
 public final class AudioPlayerApi: NSObject {
     public typealias ResultCallback = (String?, String?, String?, String?) -> Void
 
-    private static var players: [String: AudioPlayer] = [:]
-    private static var playbackEventListener: ((String, String) -> Void)?
-    private static var playerDataListener: ((String, String) -> Void)?
-    private static var playbackErrorListener: ((String, String, String?, String?) -> Void)?
+    /// Engine keys are `engineIdentifier` (what Dart reads from `PlatformDispatcher.instance.engineId`). This is
+    /// what Dart sends when it has none, such as from a background isolate; Flutter never gives an engine this id.
+    static let noEngine: Int64 = 0
+
+    /// Each attached engine's players and listeners. Main thread only.
+    private static var scopes: [Int64: EngineScope] = [:]
+    /// For registrars that do not expose their engine identifier: negative, so never a real identifier.
+    private static var lastSyntheticKey: Int64 = 0
 
     private static func onMain(_ work: @escaping () -> Void) {
         if Thread.isMainThread { work() } else { DispatchQueue.main.async(execute: work) }
     }
 
-    /// Engine teardown (app closed or Flutter engine destroyed): free every player. The Dart side is going away,
-    /// so nothing is sent and the listeners are dropped.
-    static func detach() {
-        onMain {
-            playbackEventListener = nil
-            playerDataListener = nil
-            playbackErrorListener = nil
-            disposeAll(calledFromDeinit: true)
+    private static func onMainSync<T>(_ work: () -> T) -> T {
+        Thread.isMainThread ? work() : DispatchQueue.main.sync(execute: work)
+    }
+
+    // MARK: Engines
+
+    /// The key `registrar`'s engine is kept under: its identifier when the registrar exposes one, else a
+    /// synthetic key that only the single-engine fallback in `scope(forEngine:)` can reach.
+    static func engineKey(of registrar: AnyObject) -> Int64 {
+        let selector = NSSelectorFromString("engineIdentifier")
+        if let object = registrar as? NSObject, object.responds(to: selector),
+           let identifier = object.value(forKey: "engineIdentifier") as? NSNumber,
+           identifier.int64Value != noEngine {
+            return identifier.int64Value
+        }
+        return onMainSync {
+            lastSyntheticKey -= 1
+            return lastSyntheticKey
         }
     }
 
-    private static func disposeAll(calledFromDeinit: Bool) {
-        for player in players.values {
-            player.dispose(calledFromDeinit: calledFromDeinit)
+    /// Starts a scope for an attaching engine; one left under the same key is released first.
+    static func attach(engine key: Int64) -> EngineScope {
+        onMainSync {
+            let scope = EngineScope()
+            scopes.updateValue(scope, forKey: key)?.detach()
+            return scope
         }
-        players.removeAll()
+    }
+
+    /// Engine teardown (app closed or Flutter engine destroyed): frees that engine's players only.
+    static func detach(engine key: Int64, scope: EngineScope) {
+        onMain {
+            if scopes[key] === scope {
+                scopes.removeValue(forKey: key)
+            }
+            scope.detach()
+        }
+    }
+
+    /// The calling engine's scope. Without an exact match the only attached scope is used; with several attached,
+    /// `nil`, so a call never lands in another engine.
+    private static func scope(forEngine engineId: Int64) -> EngineScope? {
+        if engineId != noEngine, let scope = scopes[engineId] {
+            return scope
+        }
+        return scopes.count == 1 ? scopes.values.first : nil
+    }
+
+    private static func detachedError() -> NativeError {
+        NativeError(code: "detached", message: "The calling Flutter engine is not attached", details: nil)
     }
 
     // MARK: Listeners
 
-    @objc public static func setPlaybackListeners(
+    @objc(setPlaybackListenersForEngine:playbackEvent:playerData:playbackError:)
+    public static func setPlaybackListeners(
+        engine engineId: Int64,
         playbackEvent: ((String, String) -> Void)?,
         playerData: ((String, String) -> Void)?,
         playbackError: ((String, String, String?, String?) -> Void)?
     ) {
         onMain {
-            playbackEventListener = playbackEvent
-            playerDataListener = playerData
-            playbackErrorListener = playbackError
-        }
-    }
-
-    /// Delivers what a player reports to the Dart listeners.
-    static func deliver(_ kind: PlayerEventSink.Kind, playerId: String, event: Any?) {
-        if let error = event as? NativeError {
-            playbackErrorListener?(playerId, error.code, error.message, NativeJSON.encodeDetails(error.details))
-            return
-        }
-        let json = NativeJSON.encode(event)
-        switch kind {
-        case .playback: playbackEventListener?(playerId, json)
-        case .data: playerDataListener?(playerId, json)
+            guard let scope = scope(forEngine: engineId) else { return }
+            scope.playbackEventListener = playbackEvent
+            scope.playerDataListener = playerData
+            scope.playbackErrorListener = playbackError
         }
     }
 
     // MARK: Calls
 
-    @objc public static func callMain(_ method: String, request: String, callback: @escaping ResultCallback) {
-        onMain {
-            let result = makeResult(callback)
-            guard let arguments = NativeJSON.decodeMap(request) else {
-                result(NativeError(code: "invalid_argument", message: "Unreadable request for \(method)", details: nil))
-                return
-            }
-            handleMain(method, arguments, result)
-        }
-    }
-
-    @objc public static func callPlayer(
-        _ playerId: String,
+    @objc(callMainForEngine:method:request:callback:)
+    public static func callMain(
+        engine engineId: Int64,
         method: String,
         request: String,
         callback: @escaping ResultCallback
     ) {
         onMain {
             let result = makeResult(callback)
-            guard let player = players[playerId] else {
+            guard let scope = scope(forEngine: engineId) else {
+                result(detachedError())
+                return
+            }
+            guard let arguments = NativeJSON.decodeMap(request) else {
+                result(NativeError(code: "invalid_argument", message: "Unreadable request for \(method)", details: nil))
+                return
+            }
+            scope.handleMain(method, arguments, result)
+        }
+    }
+
+    @objc(callPlayerForEngine:playerId:method:request:callback:)
+    public static func callPlayer(
+        engine engineId: Int64,
+        playerId: String,
+        method: String,
+        request: String,
+        callback: @escaping ResultCallback
+    ) {
+        onMain {
+            let result = makeResult(callback)
+            guard let scope = scope(forEngine: engineId) else {
+                result(detachedError())
+                return
+            }
+            guard let player = scope.players[playerId] else {
                 result(NativeError(code: "error", message: "Platform player \(playerId) does not exist", details: nil))
                 return
             }
@@ -97,7 +142,61 @@ public final class AudioPlayerApi: NSObject {
         }
     }
 
-    private static func handleMain(_ method: String, _ request: [String: Any], _ result: NativeResult) {
+    /// Wraps the callback so only the first answer counts: a code means failure, none means success.
+    private static func makeResult(_ callback: @escaping ResultCallback) -> NativeResult {
+        var replied = false
+        return { value in
+            if replied { return }
+            replied = true
+            if let error = value as? NativeError {
+                callback(nil, error.code, error.message, NativeJSON.encodeDetails(error.details))
+            } else {
+                callback(NativeJSON.encode(value), nil, nil, nil)
+            }
+        }
+    }
+}
+
+/// The players and Dart listeners of one attached engine. Main thread only. Once detached it delivers nothing, so
+/// the events of a gone engine never reach another one.
+final class EngineScope {
+    fileprivate(set) var players: [String: AudioPlayer] = [:]
+    fileprivate var playbackEventListener: ((String, String) -> Void)?
+    fileprivate var playerDataListener: ((String, String) -> Void)?
+    fileprivate var playbackErrorListener: ((String, String, String?, String?) -> Void)?
+    private var attached = true
+
+    /// The engine is going away: free every player, and drop the listeners without calling them.
+    func detach() {
+        attached = false
+        playbackEventListener = nil
+        playerDataListener = nil
+        playbackErrorListener = nil
+        disposeAll(calledFromDeinit: true)
+    }
+
+    private func disposeAll(calledFromDeinit: Bool) {
+        for player in players.values {
+            player.dispose(calledFromDeinit: calledFromDeinit)
+        }
+        players.removeAll()
+    }
+
+    /// Delivers what one of this engine's players reports to its Dart listeners.
+    func deliver(_ kind: PlayerEventSink.Kind, playerId: String, event: Any?) {
+        guard attached else { return }
+        if let error = event as? NativeError {
+            playbackErrorListener?(playerId, error.code, error.message, NativeJSON.encodeDetails(error.details))
+            return
+        }
+        let json = NativeJSON.encode(event)
+        switch kind {
+        case .playback: playbackEventListener?(playerId, json)
+        case .data: playerDataListener?(playerId, json)
+        }
+    }
+
+    func handleMain(_ method: String, _ request: [String: Any], _ result: NativeResult) {
         let empty = [String: Any]()
         switch method {
         case "init":
@@ -111,6 +210,7 @@ public final class AudioPlayerApi: NSObject {
             }
             players[playerId] = AudioPlayer(
                 playerId: playerId,
+                scope: self,
                 loadConfiguration: request["audioLoadConfiguration"] as? [String: Any],
                 handleInterruptions: request["handleInterruptions"] as? Bool ?? true,
                 handleAudioSessionActivation: request["handleAudioSessionActivation"] as? Bool ?? true
@@ -126,20 +226,6 @@ public final class AudioPlayerApi: NSObject {
             result(empty)
         default:
             result(NativeError(code: "unimplemented", message: "Unknown method \(method)", details: nil))
-        }
-    }
-
-    /// Wraps the callback so only the first answer counts: a code means failure, none means success.
-    private static func makeResult(_ callback: @escaping ResultCallback) -> NativeResult {
-        var replied = false
-        return { value in
-            if replied { return }
-            replied = true
-            if let error = value as? NativeError {
-                callback(nil, error.code, error.message, NativeJSON.encodeDetails(error.details))
-            } else {
-                callback(NativeJSON.encode(value), nil, nil, nil)
-            }
         }
     }
 }
