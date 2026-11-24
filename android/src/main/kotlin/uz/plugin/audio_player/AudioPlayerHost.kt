@@ -49,19 +49,41 @@ internal class AudioPlayerHost(private val applicationContext: Context) {
     @Volatile
     private var attached = true
 
-    @Volatile
-    private var listener: AudioPlayerApi.PlaybackListener? = null
-
     // Touched on the main thread only.
     private val players = HashMap<String, AudioPlayer>()
 
-    fun setListener(newListener: AudioPlayerApi.PlaybackListener?) {
-        listener = newListener
+    /** The listener id of the isolate that created each player: its events go to that isolate only. */
+    private val owners = HashMap<String, String>()
+
+    /** Each isolate's listener, by listener id. */
+    private val listeners = HashMap<String, AudioPlayerApi.PlaybackListener>()
+
+    /** The listener id of the engine's root isolate. */
+    private var rootListenerId: String? = null
+
+    /**
+     * Sets the listener [listenerId], or removes it (and frees its players) when [newListener] is null. A new
+     * listener of the root isolate ([root]) means a hot restart replaced every isolate of the engine, so whatever
+     * they left is released first.
+     */
+    fun setListener(root: Boolean, listenerId: String, newListener: AudioPlayerApi.PlaybackListener?) = onMain {
+        if (!attached) return@onMain
+        if (newListener == null) {
+            listeners.remove(listenerId)
+            disposeOwnedBy(listenerId, calledFromDeinit = true)
+            if (rootListenerId == listenerId) rootListenerId = null
+            return@onMain
+        }
+        if (root) {
+            val previous = rootListenerId
+            if (previous != null && previous != listenerId) reset()
+            rootListenerId = listenerId
+        }
+        listeners[listenerId] = newListener
     }
 
     /** Runs a plugin-level call (`init`, `disposePlayer`, `disposeAllPlayers`). */
-    fun call(method: String, request: String?, callback: AudioPlayerApi.ResultCallback) {
-        val result = CallbackResult(callback)
+    fun call(method: String, request: String?, result: PlayerResult) {
         onMain {
             if (!attached) {
                 result.error(ErrorCode.DETACHED, "No Flutter engine is attached", null)
@@ -80,8 +102,7 @@ internal class AudioPlayerHost(private val applicationContext: Context) {
     }
 
     /** Runs a call on the player [playerId]. */
-    fun callPlayer(playerId: String, method: String, request: String?, callback: AudioPlayerApi.ResultCallback) {
-        val result = CallbackResult(callback)
+    fun callPlayer(playerId: String, method: String, request: String?, result: PlayerResult) {
         onMain {
             val player = players[playerId]
             if (!attached || player == null) {
@@ -103,11 +124,16 @@ internal class AudioPlayerHost(private val applicationContext: Context) {
         when (call.method) {
             "init" -> init(call, result)
             "disposePlayer" -> {
-                call.arguments.optional<String>("id")?.let { players.remove(it)?.dispose(calledFromDeinit = false) }
+                call.arguments.optional<String>("id")?.let {
+                    owners.remove(it)
+                    players.remove(it)?.dispose(calledFromDeinit = false)
+                }
                 result.success(emptyMap<String, Any?>())
             }
             "disposeAllPlayers" -> {
-                dispose(calledFromDeinit = false)
+                // Only the calling isolate's players; a request without a listener id frees them all.
+                val listenerId = call.arguments.optional<String>("listenerId")
+                if (listenerId == null) dispose(calledFromDeinit = false) else disposeOwnedBy(listenerId, false)
                 result.success(emptyMap<String, Any?>())
             }
             else -> result.error(ErrorCode.UNIMPLEMENTED, "Unknown method ${call.method}", null)
@@ -124,9 +150,11 @@ internal class AudioPlayerHost(private val applicationContext: Context) {
             result.error(ErrorCode.GENERIC, "Platform player $id already exists", null)
             return
         }
+        val owner = call.arguments.optional<String>("listenerId") ?: ""
+        owners[id] = owner
         players[id] = AudioPlayer(
             applicationContext,
-            EventSink(id),
+            EventSink(id, owner),
             call.arguments.optional<Map<*, *>>("audioLoadConfiguration"),
             call.arguments.optional<List<Any?>>("androidAudioEffects") ?: emptyList(),
             call.arguments.optional<Map<*, *>>("androidAudioOffloadPreferences"),
@@ -151,23 +179,40 @@ internal class AudioPlayerHost(private val applicationContext: Context) {
             }
         }
         players.clear()
+        owners.clear()
     }
 
-    /** The engine restarts (hot restart): the Dart side is gone, so release the players and forget its listener. */
-    fun restart() {
-        listener = null
+    /** Disposes the players the isolate [listenerId] created. */
+    private fun disposeOwnedBy(listenerId: String, calledFromDeinit: Boolean) {
+        val owned = owners.filterValues { it == listenerId }.keys.toList()
+        for (id in owned) {
+            owners.remove(id)
+            try {
+                players.remove(id)?.dispose(calledFromDeinit)
+            } catch (e: RuntimeException) {
+                Log.e(TAG, "Failed to dispose a player", e)
+            }
+        }
+    }
+
+    /** Every isolate of the engine is gone: release all players and forget all listeners. Main thread only. */
+    private fun reset() {
+        listeners.clear()
+        rootListenerId = null
         dispose(calledFromDeinit = true)
     }
+
+    /** The engine restarts (hot restart): the Dart side is gone, so release the players and forget its listeners. */
+    fun restart() = onMain { reset() }
 
     /** The engine is destroyed: release the players, and nothing is delivered or answered from now on. */
     fun detach() {
         attached = false
-        listener = null
-        dispose(calledFromDeinit = true)
+        onMain { reset() }
     }
 
-    /** What one player reports to Dart, delivered to the current listener while the host is attached. */
-    private inner class EventSink(private val playerId: String) : PlayerEventSink {
+    /** What one player reports to Dart: to the listener of its [owner] isolate, while the host is attached. */
+    private inner class EventSink(private val playerId: String, private val owner: String) : PlayerEventSink {
         @Volatile
         private var closed = false
 
@@ -186,7 +231,7 @@ internal class AudioPlayerHost(private val applicationContext: Context) {
 
         private inline fun deliver(send: (AudioPlayerApi.PlaybackListener) -> Unit) {
             if (!attached || closed) return
-            val target = listener ?: return
+            val target = listeners[owner] ?: return
             try {
                 send(target)
             } catch (e: Exception) {

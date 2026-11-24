@@ -78,18 +78,24 @@ public final class AudioPlayerApi: NSObject {
 
     // MARK: Listeners
 
-    @objc(setPlaybackListenersForEngine:playbackEvent:playerData:playbackError:)
+    /// Sets the listeners `listenerId` of one isolate: a player's events go only to the isolate that created it
+    /// (`listenerId` of `init`). A non-zero `engineId` comes from the engine's root isolate; a new root listener means
+    /// a hot restart, which releases every player and listener the engine had.
+    @objc(setPlaybackListenersForEngine:listener:playbackEvent:playerData:playbackError:)
     public static func setPlaybackListeners(
         engine engineId: Int64,
+        listener listenerId: String,
         playbackEvent: ((String, String) -> Void)?,
         playerData: ((String, String) -> Void)?,
         playbackError: ((String, String, String?, String?) -> Void)?
     ) {
         onMain {
             guard let scope = scope(forEngine: engineId) else { return }
-            scope.playbackEventListener = playbackEvent
-            scope.playerDataListener = playerData
-            scope.playbackErrorListener = playbackError
+            scope.setListeners(
+                EngineScope.Listeners(playbackEvent: playbackEvent, playerData: playerData, playbackError: playbackError),
+                id: listenerId,
+                root: engineId != noEngine
+            )
         }
     }
 
@@ -142,16 +148,19 @@ public final class AudioPlayerApi: NSObject {
         }
     }
 
-    /// Wraps the callback so only the first answer counts: a code means failure, none means success.
+    /// Wraps the callback so only the first answer counts: a code means failure, none means success. An answer from
+    /// another thread (an AVFoundation completion handler) is moved to the main thread, where `replied` lives.
     private static func makeResult(_ callback: @escaping ResultCallback) -> NativeResult {
         var replied = false
         return { value in
-            if replied { return }
-            replied = true
-            if let error = value as? NativeError {
-                callback(nil, error.code, error.message, NativeJSON.encodeDetails(error.details))
-            } else {
-                callback(NativeJSON.encode(value), nil, nil, nil)
+            onMain {
+                if replied { return }
+                replied = true
+                if let error = value as? NativeError {
+                    callback(nil, error.code, error.message, NativeJSON.encodeDetails(error.details))
+                } else {
+                    callback(NativeJSON.encode(value), nil, nil, nil)
+                }
             }
         }
     }
@@ -160,18 +169,44 @@ public final class AudioPlayerApi: NSObject {
 /// The players and Dart listeners of one attached engine. Main thread only. Once detached it delivers nothing, so
 /// the events of a gone engine never reach another one.
 final class EngineScope {
+    /// The listener blocks of one Dart isolate.
+    struct Listeners {
+        let playbackEvent: ((String, String) -> Void)?
+        let playerData: ((String, String) -> Void)?
+        let playbackError: ((String, String, String?, String?) -> Void)?
+    }
+
     fileprivate(set) var players: [String: AudioPlayer] = [:]
-    fileprivate var playbackEventListener: ((String, String) -> Void)?
-    fileprivate var playerDataListener: ((String, String) -> Void)?
-    fileprivate var playbackErrorListener: ((String, String, String?, String?) -> Void)?
+    /// The listener id of the isolate that created each player: its events go to that isolate only.
+    private var owners: [String: String] = [:]
+    private var listeners: [String: Listeners] = [:]
+    /// The listener id of the engine's root isolate.
+    private var rootListenerId: String?
     private var attached = true
+
+    /// Sets the listeners of isolate `id`. A new root isolate (`root`) means a hot restart replaced every isolate of
+    /// the engine, so whatever they left is released first, without calling their listeners.
+    func setListeners(_ newListeners: Listeners, id: String, root: Bool) {
+        guard attached else { return }
+        if root {
+            if let previous = rootListenerId, previous != id {
+                reset()
+            }
+            rootListenerId = id
+        }
+        listeners[id] = newListeners
+    }
 
     /// The engine is going away: free every player, and drop the listeners without calling them.
     func detach() {
         attached = false
-        playbackEventListener = nil
-        playerDataListener = nil
-        playbackErrorListener = nil
+        reset()
+    }
+
+    /// Every isolate of the engine is gone: free all players and forget all listeners.
+    private func reset() {
+        listeners.removeAll()
+        rootListenerId = nil
         disposeAll(calledFromDeinit: true)
     }
 
@@ -180,19 +215,33 @@ final class EngineScope {
             player.dispose(calledFromDeinit: calledFromDeinit)
         }
         players.removeAll()
+        owners.removeAll()
     }
 
-    /// Delivers what one of this engine's players reports to its Dart listeners.
+    /// Disposes the players the isolate `listenerId` created.
+    private func disposeOwned(by listenerId: String) {
+        for (playerId, owner) in owners where owner == listenerId {
+            owners.removeValue(forKey: playerId)
+            players.removeValue(forKey: playerId)?.dispose(calledFromDeinit: false)
+        }
+    }
+
+    /// Delivers what one of this engine's players reports to the listeners of the isolate that created it. An event
+    /// from another thread is moved to the main thread first.
     func deliver(_ kind: PlayerEventSink.Kind, playerId: String, event: Any?) {
-        guard attached else { return }
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.deliver(kind, playerId: playerId, event: event) }
+            return
+        }
+        guard attached, let owner = owners[playerId], let target = listeners[owner] else { return }
         if let error = event as? NativeError {
-            playbackErrorListener?(playerId, error.code, error.message, NativeJSON.encodeDetails(error.details))
+            target.playbackError?(playerId, error.code, error.message, NativeJSON.encodeDetails(error.details))
             return
         }
         let json = NativeJSON.encode(event)
         switch kind {
-        case .playback: playbackEventListener?(playerId, json)
-        case .data: playerDataListener?(playerId, json)
+        case .playback: target.playbackEvent?(playerId, json)
+        case .data: target.playerData?(playerId, json)
         }
     }
 
@@ -208,6 +257,7 @@ final class EngineScope {
                 result(NativeError(code: "error", message: "Platform player already exists", details: nil))
                 return
             }
+            owners[playerId] = request["listenerId"] as? String ?? ""
             players[playerId] = AudioPlayer(
                 playerId: playerId,
                 scope: self,
@@ -218,11 +268,17 @@ final class EngineScope {
             result(empty)
         case "disposePlayer":
             if let playerId = request["id"] as? String {
+                owners.removeValue(forKey: playerId)
                 players.removeValue(forKey: playerId)?.dispose(calledFromDeinit: false)
             }
             result(empty)
         case "disposeAllPlayers":
-            disposeAll(calledFromDeinit: false)
+            // Only the calling isolate's players; a request without a listener id frees them all.
+            if let listenerId = request["listenerId"] as? String {
+                disposeOwned(by: listenerId)
+            } else {
+                disposeAll(calledFromDeinit: false)
+            }
             result(empty)
         default:
             result(NativeError(code: "unimplemented", message: "Unknown method \(method)", details: nil))

@@ -1,3 +1,28 @@
+## 1.2.0
+
+### Fixed
+
+* A player created in a background isolate no longer takes over the playback events of the root isolate's players
+  (Android, iOS, macOS): each isolate registers its own listener, and a player's events go only to the isolate that
+  created it. `disposeAllPlayers` frees only the calling isolate's players.
+* iOS/macOS: key-value changes, seek completions, replies and events that AVFoundation reports on another thread are
+  handled on the main thread, where the player state lives.
+* Android: a call that fails synchronously in JNI completes its future with a `PlatformException` instead of throwing.
+* Event listening is retried on the next call when registering the native listener fails.
+* macOS: the players of a destroyed Flutter engine are released (macOS never calls `detachFromEngine`).
+
+### Changed
+
+* Require Flutter 3.47 and Dart 3.13 (was Flutter 3.50 and Dart 3.14); CI runs on Flutter 3.47.0.
+* Android: replies to Dart go through one JNI callback per isolate with a call id, instead of a new proxy and receive
+  port per call that only closed once Java collected it.
+* Windows, Linux and other unsupported platforms get `UnsupportedAudioPlayerPlatform`, which fails every call with an
+  `UnsupportedError`, instead of the iOS/macOS platform failing in the Objective-C runtime.
+* Hot restart releases the native players of the restarted engine on iOS and macOS too.
+* iOS/macOS: Swift Package Manager only; the CocoaPods podspec was removed.
+* The JNI facade (`AudioPlayerApi.kt`) and the Objective-C API (`audio_player_api.h`) take a listener id and call ids;
+  the generated bindings were regenerated.
+
 ## 1.1.3
 
 ### Fixed

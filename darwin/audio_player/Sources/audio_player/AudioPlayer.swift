@@ -102,8 +102,16 @@ final class AudioPlayer: NSObject {
         }
     }
 
+    /// KVO calls this on the thread that changed the value; the player state lives on the main thread.
     override func observeValue(forKeyPath keyPath: String?, of object: Any?, change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
-        handleKeyValueChange(keyPath, of: object, change: change)
+        if Thread.isMainThread {
+            handleKeyValueChange(keyPath, of: object, change: change)
+        } else {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.disposed else { return }
+                self.handleKeyValueChange(keyPath, of: object, change: change)
+            }
+        }
     }
 
     /// Converts a time to whole milliseconds, mapping non-numeric times to 0.

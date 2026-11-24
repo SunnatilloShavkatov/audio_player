@@ -13,8 +13,8 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # Keep in sync with the `flutter` constraint in pubspec.yaml (>=3.50.0, Dart >=3.14.0).
-  FLUTTER_VERSION: 3.50.0
+  # Keep in sync with the `flutter` constraint in pubspec.yaml (>=3.47.0, Dart >=3.13.0).
+  FLUTTER_VERSION: 3.47.0
 
 jobs:
   check:
@@ -68,6 +68,8 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
           pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('**/pubspec.yaml') }}
+      # The plugin ships only a Swift package (no podspec).
+      - run: flutter config --enable-swift-package-manager
       - run: flutter build ios --simulator --no-codesign
         working-directory: example
 
@@ -83,6 +85,8 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
           pub-cache-key: flutter-pub-:os:-:channel:-:version:-:arch:-${{ hashFiles('**/pubspec.yaml') }}
+      # The plugin ships only a Swift package (no podspec).
+      - run: flutter config --enable-swift-package-manager
       - run: flutter build macos --debug
         working-directory: example
 

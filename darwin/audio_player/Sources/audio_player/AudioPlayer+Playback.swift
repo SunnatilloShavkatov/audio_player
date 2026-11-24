@@ -88,7 +88,7 @@ extension AudioPlayer {
                 enterBuffering("seek to index")
                 updatePosition()
                 broadcastPlaybackEvent()
-                source.seek(position) { finished in
+                source.seek(position, completionHandler: Self.onMainThread { finished in
                     if self.disposed {
                         // Nothing may be sent once the engine is going away; an explicit disposal still answers the call.
                         if !self.disposedFromDeinit { complete(false) }
@@ -119,7 +119,7 @@ extension AudioPlayer {
                     self.seekPos = .invalid
                     self.broadcastPlaybackEvent()
                     complete(finished)
-                }
+                })
             } else {
                 seekPos = .invalid
                 if playing {
@@ -140,7 +140,7 @@ extension AudioPlayer {
             enterBuffering("seek")
             updatePosition()
             broadcastPlaybackEvent()
-            currentSource.seek(position) { finished in
+            currentSource.seek(position, completionHandler: Self.onMainThread { finished in
                 if self.disposed {
                     // Nothing may be sent once the engine is going away; an explicit disposal still answers the call.
                     if !self.disposedFromDeinit { complete(false) }
@@ -175,6 +175,18 @@ extension AudioPlayer {
                 self.seekPos = .invalid
                 self.broadcastPlaybackEvent()
                 complete(finished)
+            })
+        }
+    }
+
+    /// Runs `handler` on the main thread, where the player state lives: AVFoundation does not promise which thread
+    /// calls a seek completion handler.
+    static func onMainThread(_ handler: @escaping (Bool) -> Void) -> (Bool) -> Void {
+        return { finished in
+            if Thread.isMainThread {
+                handler(finished)
+            } else {
+                DispatchQueue.main.async { handler(finished) }
             }
         }
     }

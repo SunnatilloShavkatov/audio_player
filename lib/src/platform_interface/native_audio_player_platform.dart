@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 import 'dart:ui' show PlatformDispatcher;
 
 import 'package:audio_player/src/platform_interface/audio_player_platform_interface.dart';
@@ -12,11 +13,23 @@ abstract class NativeAudioPlayerTransport {
   final _playerData = <String, StreamController<PlayerDataMessage>>{};
   bool _listening = false;
 
+  /// Identifies this isolate's listeners on the native side. Native code sends a player's events only to the
+  /// listener of the isolate that created it, so a background isolate never takes over the root isolate's events.
+  /// `init` and `disposeAllPlayers` carry it in the request as `listenerId`.
+  final String listenerId = newListenerId();
+
+  /// A random listener id: unique per isolate, never reused after a hot restart.
+  static String newListenerId() {
+    final random = Random.secure();
+    return List<String>.generate(4, (_) => random.nextInt(1 << 32).toRadixString(16).padLeft(8, '0')).join();
+  }
+
   /// What native code receives for an engine id: [id], or 0 when Dart has none (a background isolate). Native
   /// code then uses the only attached engine, and fails the call when several are attached.
   static int engineIdForNative(int? id) => id ?? 0;
 
-  /// The id of the engine this isolate runs in, so native code answers with that engine's players only.
+  /// The id of the engine this isolate runs in, so native code answers with that engine's players only. A
+  /// non-zero id also tells native code the call comes from the engine's root isolate.
   int get engineId => engineIdForNative(PlatformDispatcher.instance.engineId);
 
   /// Sends the JSON [request] of [method] (to player [playerId], or to the plugin when null) and returns the JSON
@@ -27,13 +40,13 @@ abstract class NativeAudioPlayerTransport {
   /// [onPlaybackError].
   void listen();
 
-  /// Makes sure the native side delivers events, once.
+  /// Makes sure the native side delivers events, once. A [listen] that throws is tried again on the next call.
   void ensureListening() {
     if (_listening) {
       return;
     }
-    _listening = true;
     listen();
+    _listening = true;
   }
 
   /// Sends a request and decodes the reply map.
@@ -123,7 +136,7 @@ class NativeAudioPlayerPlatform extends AudioPlayerPlatform {
       ..ensureListening()
       ..attach(request.id);
     try {
-      await transport.invoke(null, 'init', request.toMap());
+      await transport.invoke(null, 'init', {...request.toMap(), 'listenerId': transport.listenerId});
     } on Object {
       transport.detach(request.id);
       rethrow;
@@ -141,7 +154,12 @@ class NativeAudioPlayerPlatform extends AudioPlayerPlatform {
   @override
   Future<DisposeAllPlayersResponse> disposeAllPlayers(DisposeAllPlayersRequest request) async {
     transport.ensureListening();
-    final reply = await transport.invoke(null, 'disposeAllPlayers', request.toMap());
+    // Only this isolate's players: another isolate of the engine keeps its own. Native code frees the players of a
+    // hot-restarted engine itself.
+    final reply = await transport.invoke(null, 'disposeAllPlayers', {
+      ...request.toMap(),
+      'listenerId': transport.listenerId,
+    });
     transport.detachAll();
     return DisposeAllPlayersResponse.fromMap(reply);
   }

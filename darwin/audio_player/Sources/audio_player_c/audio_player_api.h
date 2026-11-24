@@ -9,8 +9,10 @@ NS_ASSUME_NONNULL_BEGIN
 @interface AudioPlayerApi : NSObject
 
 // `engineId` is the caller's `PlatformDispatcher.instance.engineId` (0 when unknown): each engine has its own
-// players and listeners.
+// players and listeners. `listenerId` identifies the calling isolate: a player's events go to the isolate that
+// created it.
 + (void)setPlaybackListenersForEngine:(int64_t)engineId
+                             listener:(NSString *)listenerId
                         playbackEvent:(nullable void (^)(NSString *playerId, NSString *json))playbackEvent
                            playerData:(nullable void (^)(NSString *playerId, NSString *json))playerData
                         playbackError:(nullable void (^)(NSString *playerId, NSString *code, NSString *_Nullable message, NSString *_Nullable details))playbackError;

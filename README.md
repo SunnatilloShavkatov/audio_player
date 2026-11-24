@@ -45,7 +45,7 @@ Or add it to `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  audio_player: ^1.1.3
+  audio_player: ^1.2.0
 ```
 
 ---
