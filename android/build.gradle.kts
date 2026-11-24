@@ -3,7 +3,7 @@ plugins {
 }
 
 group = "uz.plugin.audio_player"
-version = "1.1.3"
+version = "1.2.0"
 
 kotlin {
     compilerOptions {

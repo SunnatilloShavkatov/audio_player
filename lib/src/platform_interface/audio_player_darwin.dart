@@ -61,6 +61,7 @@ class DarwinAudioPlayerTransport extends NativeAudioPlayerTransport {
   void listen() {
     AudioPlayerApi.setPlaybackListenersForEngine(
       engineId,
+      listener: listenerId.toNSString(),
       playbackEvent: ObjCBlock_ffiVoid_NSString_NSString.listener(
         (objc.NSString playerId, objc.NSString json) => onPlaybackEvent(playerId.toDartString(), json.toDartString()),
       ),

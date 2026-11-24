@@ -26,13 +26,22 @@ abstract class AudioPlayerPlatform extends PlatformInterface {
 
   static final Object _token = Object();
 
-  static AudioPlayerPlatform _instance = Platform.isAndroid
-      ? AndroidAudioPlayerPlatform()
-      : DarwinAudioPlayerPlatform();
+  static AudioPlayerPlatform _instance = _defaultPlatform();
+
+  static AudioPlayerPlatform _defaultPlatform() {
+    if (Platform.isAndroid) {
+      return AndroidAudioPlayerPlatform();
+    }
+    if (Platform.isIOS || Platform.isMacOS) {
+      return DarwinAudioPlayerPlatform();
+    }
+    return UnsupportedAudioPlayerPlatform();
+  }
 
   /// The default instance of [AudioPlayerPlatform] to use.
   ///
-  /// Defaults to [AndroidAudioPlayerPlatform] on Android and [DarwinAudioPlayerPlatform] elsewhere.
+  /// Defaults to [AndroidAudioPlayerPlatform] on Android, [DarwinAudioPlayerPlatform] on iOS and macOS, and
+  /// [UnsupportedAudioPlayerPlatform] elsewhere.
   static AudioPlayerPlatform get instance => _instance;
 
   /// Platform-specific plugins should set this with their own platform-specific
@@ -57,6 +66,22 @@ abstract class AudioPlayerPlatform extends PlatformInterface {
   Future<DisposeAllPlayersResponse> disposeAllPlayers(DisposeAllPlayersRequest request) {
     throw UnimplementedError('disposeAllPlayers() has not been implemented.');
   }
+}
+
+/// The platform of an OS without native players (Windows, Linux): every call fails with an [UnsupportedError]
+/// instead of reaching a native API that does not exist there.
+class UnsupportedAudioPlayerPlatform extends AudioPlayerPlatform {
+  static UnsupportedError _unsupported() =>
+      UnsupportedError('audio_player supports Android, iOS and macOS only, not ${Platform.operatingSystem}.');
+
+  @override
+  Future<AudioPlayerInstancePlatform> init(InitRequest request) => throw _unsupported();
+
+  @override
+  Future<DisposePlayerResponse> disposePlayer(DisposePlayerRequest request) => throw _unsupported();
+
+  @override
+  Future<DisposeAllPlayersResponse> disposeAllPlayers(DisposeAllPlayersRequest request) => throw _unsupported();
 }
 
 /// A nested platform interface for communicating with a particular player

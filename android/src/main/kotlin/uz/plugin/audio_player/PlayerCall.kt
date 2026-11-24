@@ -12,8 +12,11 @@ internal interface PlayerResult {
     fun error(code: String, message: String?, details: Any?)
 }
 
-/** Answers a call through its JNI callback. Only the first answer counts, later ones are dropped. */
-internal class CallbackResult(private val callback: AudioPlayerApi.ResultCallback) : PlayerResult {
+/** Answers the call [callId] through the JNI callback. Only the first answer counts, later ones are dropped. */
+internal class CallbackResult(
+    private val callback: AudioPlayerApi.ResultCallback,
+    private val callId: Long,
+) : PlayerResult {
     private var replied = false
 
     override fun success(value: Any?) {
@@ -22,15 +25,15 @@ internal class CallbackResult(private val callback: AudioPlayerApi.ResultCallbac
             JsonCodec.encode(value)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to encode a reply", e)
-            callback.onError(ErrorCode.GENERIC, e.message ?: e.toString(), null)
+            callback.onError(callId, ErrorCode.GENERIC, e.message ?: e.toString(), null)
             return
         }
-        callback.onResult(json)
+        callback.onResult(callId, json)
     }
 
     override fun error(code: String, message: String?, details: Any?) {
         if (!claim()) return
-        callback.onError(code, message, JsonCodec.encodeDetails(details))
+        callback.onError(callId, code, message, JsonCodec.encodeDetails(details))
     }
 
     private fun claim(): Boolean {

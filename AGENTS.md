@@ -81,3 +81,11 @@ cd example && patrol test -d <device id> -t patrol_test/<file>.dart   # one file
   `AudioPlayerHost` by it, Darwin keys `EngineScope` by the registrar's engine identifier. Id 0 falls back to the only
   attached engine; with several attached the call fails with `detached`, never lands in another engine. Detaching an
   engine releases only its own players.
+- Within an engine, state is per isolate: each `NativeAudioPlayerTransport` has a random `listenerId`, sent with
+  `setPlaybackListener(s)`, `init` and `disposeAllPlayers`. A player's events go only to the listener of the isolate that
+  created it; `disposeAllPlayers` frees only the caller's players. A new listener from the root isolate (non-zero
+  engine id) means a hot restart: native code releases every player and listener of that engine (deinit rules apply).
+- Threads: native state is main-thread only. Android posts JNI calls to the main looper; Darwin moves calls, replies
+  (`makeResult`), events (`EngineScope.deliver`), KVO (`observeValue`) and seek completions (`onMainThread`) there.
+- Android replies use one `ResultCallback` per isolate with a `callId` per call (no proxy per call). macOS has no
+  `detachFromEngine`: a sentinel associated with `registrar.messenger` detaches the engine when the messenger is freed.

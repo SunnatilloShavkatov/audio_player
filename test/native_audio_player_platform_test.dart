@@ -19,6 +19,7 @@ class _FakeTransport extends NativeAudioPlayerTransport {
       : '{}';
   Exception? failure;
   int listenCount = 0;
+  Error? listenFailure;
 
   @override
   Future<String> send(String? playerId, String method, String request) async {
@@ -32,7 +33,13 @@ class _FakeTransport extends NativeAudioPlayerTransport {
   }
 
   @override
-  void listen() => listenCount++;
+  void listen() {
+    listenCount++;
+    final error = listenFailure;
+    if (error != null) {
+      throw error;
+    }
+  }
 }
 
 void main() {
@@ -51,6 +58,35 @@ void main() {
       expect(transport.calls.map((c) => c.method), ['init', 'disposePlayer', 'disposeAllPlayers']);
       expect(transport.calls.every((c) => c.playerId == null), isTrue);
       expect(transport.listenCount, 1);
+    });
+
+    test('init and disposeAllPlayers carry the listener id; disposePlayer does not need it', () async {
+      final transport = _FakeTransport();
+      final platform = NativeAudioPlayerPlatform(transport);
+      await platform.init(InitRequest(id: 'p1'));
+      await platform.disposePlayer(DisposePlayerRequest(id: 'p1'));
+      await platform.disposeAllPlayers(DisposeAllPlayersRequest());
+      final requests = transport.calls.map((c) => jsonDecode(c.request) as Map<String, dynamic>).toList();
+      expect(requests[0], containsPair('listenerId', transport.listenerId));
+      expect(requests[1].containsKey('listenerId'), isFalse);
+      expect(requests[2], containsPair('listenerId', transport.listenerId));
+    });
+
+    test('every transport has its own listener id', () {
+      final ids = List<String>.generate(20, (_) => _FakeTransport().listenerId).toSet();
+      expect(ids, hasLength(20));
+      expect(ids.first, matches(RegExp(r'^[0-9a-f]{32}$')));
+    });
+
+    test('a listen that throws is tried again on the next init', () async {
+      final transport = _FakeTransport()..listenFailure = StateError('no listener');
+      final platform = NativeAudioPlayerPlatform(transport);
+      await expectLater(platform.init(InitRequest(id: 'p1')), throwsStateError);
+      expect(transport.calls, isEmpty);
+      transport.listenFailure = null;
+      await platform.init(InitRequest(id: 'p1'));
+      await platform.init(InitRequest(id: 'p2'));
+      expect(transport.listenCount, 2);
     });
 
     test('a failed init throws and stops routing events', () async {
@@ -230,6 +266,15 @@ void main() {
 
     test('an engine id is passed through', () {
       expect(NativeAudioPlayerTransport.engineIdForNative(7), 7);
+    });
+  });
+
+  group('UnsupportedAudioPlayerPlatform', () {
+    test('fails every call with UnsupportedError', () {
+      final platform = UnsupportedAudioPlayerPlatform();
+      expect(() => platform.init(InitRequest(id: 'p1')), throwsUnsupportedError);
+      expect(() => platform.disposePlayer(DisposePlayerRequest(id: 'p1')), throwsUnsupportedError);
+      expect(() => platform.disposeAllPlayers(DisposeAllPlayersRequest()), throwsUnsupportedError);
     });
   });
 }

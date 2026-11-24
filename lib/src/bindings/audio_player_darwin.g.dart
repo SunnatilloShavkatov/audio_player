@@ -124,23 +124,26 @@ extension type AudioPlayerApi._(objc.ObjCObject object$) implements objc.ObjCObj
     return AudioPlayerApi.fromPointer($ret, retain: false, release: true);
   }
 
-  /// setPlaybackListenersForEngine:playbackEvent:playerData:playbackError:
+  /// setPlaybackListenersForEngine:listener:playbackEvent:playerData:playbackError:
   static void setPlaybackListenersForEngine(
     int engineId, {
+    required objc.NSString listener,
     objc.ObjCBlock<ffi.Void Function(objc.NSString, objc.NSString)>? playbackEvent,
     objc.ObjCBlock<ffi.Void Function(objc.NSString, objc.NSString)>? playerData,
     objc.ObjCBlock<ffi.Void Function(objc.NSString, objc.NSString, objc.NSString?, objc.NSString?)>? playbackError,
   }) {
-    final _$$ref = playbackEvent?.ref;
-    final _$$ref$1 = playerData?.ref;
-    final _$$ref$2 = playbackError?.ref;
-    _objc_msgSend_c2u0b8(
+    final _$$ref = listener.ref;
+    final _$$ref$1 = playbackEvent?.ref;
+    final _$$ref$2 = playerData?.ref;
+    final _$$ref$3 = playbackError?.ref;
+    _objc_msgSend_m6upxy(
       _class_AudioPlayerApi,
-      _sel_setPlaybackListenersForEngine_playbackEvent_playerData_playbackError_,
+      _sel_setPlaybackListenersForEngine_listener_playbackEvent_playerData_playbackError_,
       engineId,
-      _$$ref?.pointer ?? ffi.nullptr,
+      _$$ref.pointer,
       _$$ref$1?.pointer ?? ffi.nullptr,
       _$$ref$2?.pointer ?? ffi.nullptr,
+      _$$ref$3?.pointer ?? ffi.nullptr,
     );
   }
 
@@ -957,29 +960,6 @@ final _objc_msgSend_1xkiqca = objc.msgSendPointer
         ffi.Pointer<objc.ObjCBlockImpl>,
       )
     >();
-final _objc_msgSend_c2u0b8 = objc.msgSendPointer
-    .cast<
-      ffi.NativeFunction<
-        ffi.Void Function(
-          ffi.Pointer<objc.ObjCObjectImpl>,
-          ffi.Pointer<objc.ObjCSelector>,
-          ffi.Int64,
-          ffi.Pointer<objc.ObjCBlockImpl>,
-          ffi.Pointer<objc.ObjCBlockImpl>,
-          ffi.Pointer<objc.ObjCBlockImpl>,
-        )
-      >
-    >()
-    .asFunction<
-      void Function(
-        ffi.Pointer<objc.ObjCObjectImpl>,
-        ffi.Pointer<objc.ObjCSelector>,
-        int,
-        ffi.Pointer<objc.ObjCBlockImpl>,
-        ffi.Pointer<objc.ObjCBlockImpl>,
-        ffi.Pointer<objc.ObjCBlockImpl>,
-      )
-    >();
 final _objc_msgSend_dp58nc = objc.msgSendPointer
     .cast<
       ffi.NativeFunction<
@@ -1003,6 +983,31 @@ final _objc_msgSend_dp58nc = objc.msgSendPointer
         ffi.Pointer<objc.ObjCBlockImpl>,
       )
     >();
+final _objc_msgSend_m6upxy = objc.msgSendPointer
+    .cast<
+      ffi.NativeFunction<
+        ffi.Void Function(
+          ffi.Pointer<objc.ObjCObjectImpl>,
+          ffi.Pointer<objc.ObjCSelector>,
+          ffi.Int64,
+          ffi.Pointer<objc.ObjCObjectImpl>,
+          ffi.Pointer<objc.ObjCBlockImpl>,
+          ffi.Pointer<objc.ObjCBlockImpl>,
+          ffi.Pointer<objc.ObjCBlockImpl>,
+        )
+      >
+    >()
+    .asFunction<
+      void Function(
+        ffi.Pointer<objc.ObjCObjectImpl>,
+        ffi.Pointer<objc.ObjCSelector>,
+        int,
+        ffi.Pointer<objc.ObjCObjectImpl>,
+        ffi.Pointer<objc.ObjCBlockImpl>,
+        ffi.Pointer<objc.ObjCBlockImpl>,
+        ffi.Pointer<objc.ObjCBlockImpl>,
+      )
+    >();
 late final _sel_alloc = objc.registerName("alloc");
 late final _sel_allocWithZone_ = objc.registerName("allocWithZone:");
 late final _sel_arg0 = objc.registerName("arg0");
@@ -1018,8 +1023,8 @@ late final _sel_callPlayerForEngine_playerId_method_request_callback_ = objc.reg
 late final _sel_init = objc.registerName("init");
 late final _sel_isKindOfClass_ = objc.registerName("isKindOfClass:");
 late final _sel_new = objc.registerName("new");
-late final _sel_setPlaybackListenersForEngine_playbackEvent_playerData_playbackError_ = objc.registerName(
-  "setPlaybackListenersForEngine:playbackEvent:playerData:playbackError:",
+late final _sel_setPlaybackListenersForEngine_listener_playbackEvent_playerData_playbackError_ = objc.registerName(
+  "setPlaybackListenersForEngine:listener:playbackEvent:playerData:playbackError:",
 );
 typedef instancetype = ffi.Pointer<objc.ObjCObjectImpl>;
 typedef Dartinstancetype = objc.ObjCObject;
